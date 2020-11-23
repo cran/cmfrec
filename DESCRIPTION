@@ -1,8 +1,8 @@
 Package: cmfrec
 Type: Package
 Title: Collective Matrix Factorization for Recommender Systems
-Version: 2.3.0
-Date: 2020-11-21
+Version: 2.3.2
+Date: 2020-11-23
 Author: David Cortes [aut, cre, cph], Jorge Nocedal [cph], Naoaki Okazaki [cph]
 Maintainer: David Cortes <david.cortes.rivera@gmail.com>
 URL: https://github.com/david-cortes/cmfrec
@@ -28,6 +28,6 @@ Suggests: Matrix, rsparse, recommenderlab, MASS
 Enhances: SparseM
 RoxygenNote: 7.1.1
 NeedsCompilation: yes
-Packaged: 2020-11-20 21:34:44 UTC; david
+Packaged: 2020-11-23 13:34:24 UTC; david
 Repository: CRAN
-Date/Publication: 2020-11-23 09:50:02 UTC
+Date/Publication: 2020-11-23 16:30:02 UTC

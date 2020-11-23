@@ -1820,6 +1820,9 @@ void optimizeA
     int_t ignore;
     *filled_BtB = false;
 
+    if (nonneg)
+        set_to_zero_(A_prev, (size_t)m*(size_t)k - (lda-(size_t)k), nthreads);
+
     if (Xfull == NULL) do_B = false;
 
     /* TODO: in many cases here, it's possible to shrink the buffer
@@ -1970,7 +1973,9 @@ void optimizeA
                         true, false, 1., n,
                         (real_t*)NULL, false,
                         use_cg, k, /* <- A was reset to zero, need more steps */
-                        nonneg, max_cd_steps, A_prev + ix*(size_t)lda,
+                        nonneg, max_cd_steps,
+                        (A_prev == NULL)?
+                            ((real_t*)NULL) : (A_prev + ix*(size_t)lda),
                         false
                     );
                 }
@@ -2064,7 +2069,9 @@ void optimizeA
                 true, false, 1., n,
                 (real_t*)NULL, false,
                 use_cg, max_cg_steps,
-                nonneg, max_cd_steps, A_prev + ix*(size_t)lda,
+                nonneg, max_cd_steps,
+                (A_prev == NULL)?
+                    ((real_t*)NULL) : (A_prev + ix*(size_t)lda),
                 false
             );
         }
@@ -2183,7 +2190,9 @@ void optimizeA
                     add_diag_to_BtB, false, 1., n,
                     (real_t*)NULL, NA_as_zero,
                     use_cg, max_cg_steps,
-                    nonneg, max_cd_steps, A_prev + ix*(size_t)lda,
+                    nonneg, max_cd_steps,
+                    (A_prev == NULL)?
+                        ((real_t*)NULL) : (A_prev + ix*(size_t)lda),
                     false
                 );
     }
@@ -2219,6 +2228,8 @@ void optimizeA_implicit
         add_to_diag(precomputedBtB, lam, k);
     if (!use_cg || force_set_to_zero)
         set_to_zero_(A, (size_t)m*(size_t)k - (lda-(size_t)k), nthreads);
+    if (nonneg)
+        set_to_zero_(A_prev, (size_t)m*(size_t)k - (lda-(size_t)k), nthreads);
     size_t size_buffer = use_cg? (3 * k) : (square(k));
 
 
@@ -2253,7 +2264,9 @@ void optimizeA_implicit
                 Xcsr_p[ix+(size_t)1] - Xcsr_p[ix],
                 lam,
                 precomputedBtB, k,
-                nonneg, max_cd_steps, A_prev + (size_t)ix*lda,
+                nonneg, max_cd_steps,
+                (A_prev == NULL)?
+                    ((real_t*)NULL) : (A_prev + ix*(size_t)lda),
                 buffer_real_t + ((size_t)omp_get_thread_num() * size_buffer)
             );
 }
