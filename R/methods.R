@@ -5,10 +5,10 @@
 #' \link{CMF_implicit}, \link{MostPopular}, \link{ContentBased},
 #' \link{OMF_explicit}, \link{OMF_implicit}.
 #' @param ... Extra arguments (not used).
-#' @return No return value (information is printed).
+#' @return Returns the same model object that was passes as input.
 #' @export
 print.cmfrec <- function(x, ...) {
-    cat(sprintf("'%s' Model Object\n\n", class(x)[1]))
+    cat(sprintf("'%s' Model Object\n\n", class(x)[1L]))
     if (!("MostPopular" %in% class(x))) {
         cat(sprintf("Dimensions: %d x %d\n", NCOL(x$matrices$A), NCOL(x$matrices$B)))
         cat(sprintf("Latent factors (shared): %d\n\n", x$info$k))
@@ -28,7 +28,7 @@ print.cmfrec <- function(x, ...) {
             cat(sprintf(" k_sec: %d", x$info$k_sec))
         cat("\n")
     }
-    if (NROW(x$info$lambda) == 1) {
+    if (NROW(x$info$lambda) == 1L) {
         cat(sprintf("Regularization: %.2g\n", x$info$lambda))
     } else {
         cat("Using different regularization parameters\n")
@@ -61,6 +61,8 @@ print.cmfrec <- function(x, ...) {
     
     if (NROW(x$precomputed$BtB))
         cat("(Model has precomputed matrices for predictions)\n")
+    
+    return(invisible(x))
 }
 
 #' @title Get information about factorization model
