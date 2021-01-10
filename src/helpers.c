@@ -45,7 +45,7 @@
 
     MIT License:
 
-    Copyright (c) 2020 David Cortes
+    Copyright (c) 2021 David Cortes
 
     All rights reserved.
 
@@ -785,12 +785,12 @@ int_t coo_to_csr_plus_alloc
     *csr_p = (size_t*)malloc(((size_t)m+(size_t)1)*sizeof(size_t));
     *csr_i = (int_t*)malloc(nnz*sizeof(int_t));
     *csr_v = (real_t*)malloc(nnz*sizeof(real_t));
-    if (csr_p == NULL || csr_i == NULL || csr_v == NULL)
+    if (*csr_p == NULL || *csr_i == NULL || *csr_v == NULL)
         return 1;
 
     if (W != NULL) {
         *csr_w = (real_t*)malloc(nnz*sizeof(real_t));
-        if (csr_w == NULL) return 1;
+        if (*csr_w == NULL) return 1;
     }
 
     coo_to_csr(
@@ -1033,12 +1033,8 @@ int_t lbfgs_printer_collective
         fflush(stdout);
         #endif
     }
-    if (((data_collective_fun_grad*)instance)->handle_interrupt)
-        signal(SIGINT, set_interrup_global_variable);
-    if (should_stop_procedure) {
-        should_stop_procedure = false;
+    if (should_stop_procedure)
         return 1;
-    }
     return 0;
 }
 
@@ -1065,12 +1061,8 @@ int_t lbfgs_printer_offsets
         fflush(stdout);
         #endif
     }
-    if (((data_offsets_fun_grad*)instance)->handle_interrupt)
-        signal(SIGINT, set_interrup_global_variable);
-    if (should_stop_procedure) {
-        should_stop_procedure = false;
+    if (should_stop_procedure)
         return 1;
-    }
     return 0;
 }
 
