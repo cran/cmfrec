@@ -5959,12 +5959,11 @@ int_t fit_collective_explicit_lbfgs_internal
     real_t w_main, real_t w_user, real_t w_item,
     int_t n_corr_pairs, size_t maxiter, int_t seed,
     int_t nthreads, bool prefer_onepass,
-    bool verbose, int_t print_every,
+    bool verbose, int_t print_every, bool handle_interrupt,
     int_t *restrict niter, int_t *restrict nfev,
     real_t *restrict B_plus_bias
 )
 {
-    should_stop_procedure = false;
     real_t *restrict buffer_real_t = NULL;
     real_t *restrict buffer_mt = NULL;
     int_t retval = 0;
@@ -6028,7 +6027,18 @@ int_t fit_collective_explicit_lbfgs_internal
     if (Ib != NULL) R_nan_to_C_nan(Ib, (size_t)n_ibin*(size_t)qbin);
     #endif
 
-    sig_t_ old_interrupt_handle = signal(SIGINT, set_interrup_global_variable);
+    sig_t_ old_interrupt_handle = NULL;
+    bool has_lock_on_handle = false;
+    #pragma omp critical
+    {
+        if (!handle_is_locked)
+        {
+            handle_is_locked = true;
+            has_lock_on_handle = true;
+            should_stop_procedure = false;
+            old_interrupt_handle = signal(SIGINT, set_interrup_global_variable);
+        }
+    }
 
     #ifdef _OPENMP
     bool ignore = false;
@@ -6187,6 +6197,13 @@ int_t fit_collective_explicit_lbfgs_internal
         nthreads, print_every, 0, 0
     };
 
+    if (should_stop_procedure)
+    {
+        print_err_msg("Procedure aborted before starting optimization.\n");
+        retval = 3;
+        goto cleanup;
+    }
+
 
     retval = lbfgs(
         nvars,
@@ -6248,14 +6265,23 @@ int_t fit_collective_explicit_lbfgs_internal
         free(I_csc_p);
         free(I_csc_i);
         free(I_csc);
-        signal(SIGINT, old_interrupt_handle);
-        if (should_stop_procedure) retval = 3;
-        should_stop_procedure = false;
+        #pragma omp critical
+        {
+            if (has_lock_on_handle && handle_is_locked)
+            {
+                handle_is_locked = false;
+                signal(SIGINT, old_interrupt_handle);
+            }
+            if (should_stop_procedure)
+            {
+                act_on_interrupt(3, handle_interrupt, true);
+                if (retval != 1) retval = 3;
+            }
+        }
     if (retval == 1)
     {
         if (verbose)
             print_oom_message();
-        should_stop_procedure = false;
     }
 
     return retval;
@@ -6286,7 +6312,7 @@ int_t fit_collective_explicit_lbfgs
     real_t w_main, real_t w_user, real_t w_item,
     int_t n_corr_pairs, size_t maxiter,
     int_t nthreads, bool prefer_onepass,
-    bool verbose, int_t print_every,
+    bool verbose, int_t print_every, bool handle_interrupt,
     int_t *restrict niter, int_t *restrict nfev,
     bool precompute_for_predictions,
     bool include_all_X,
@@ -6373,11 +6399,11 @@ int_t fit_collective_explicit_lbfgs
         w_main, w_user, w_item,
         n_corr_pairs, maxiter, seed,
         nthreads, prefer_onepass,
-        verbose, print_every,
+        verbose, print_every, true,
         niter, nfev,
         B_plus_bias
     );
-    if (retval != 0 && retval != 3)
+    if ((retval != 0 && retval != 3) || (retval == 3 && !handle_interrupt))
         goto cleanup;
 
 
@@ -6416,7 +6442,11 @@ int_t fit_collective_explicit_lbfgs
 
     if (precompute_for_predictions)
     {
-        if (retval == 3) should_stop_procedure = true;
+        #pragma omp critical
+        {
+            if (retval == 3)
+                should_stop_procedure = true;
+        }
         retval = precompute_collective_explicit(
             B, n, n_max, include_all_X,
             C, p,
@@ -6437,14 +6467,17 @@ int_t fit_collective_explicit_lbfgs
             precomputedTransCtCinvCt,
             precomputedCtCw
         );
-        if (should_stop_procedure && retval == 0) {
-            should_stop_procedure = false;
-            retval = 3;
+        #pragma omp critical
+        {
+            if (should_stop_procedure && retval == 0) {
+                retval = 3;
+            }
         }
     }
 
     cleanup:
         free(values);
+        act_on_interrupt(retval, handle_interrupt, false);
         return retval;
     throw_oom:
     {
@@ -6486,7 +6519,7 @@ int_t fit_collective_explicit_als
     bool NA_as_zero_X, bool NA_as_zero_U, bool NA_as_zero_I,
     int_t k_main, int_t k_user, int_t k_item,
     real_t w_main, real_t w_user, real_t w_item, real_t w_implicit,
-    int_t niter, int_t nthreads, bool verbose,
+    int_t niter, int_t nthreads, bool verbose, bool handle_interrupt,
     bool use_cg, int_t max_cg_steps, bool finalize_chol,
     bool nonneg, int_t max_cd_steps, bool nonneg_C, bool nonneg_D,
     bool precompute_for_predictions,
@@ -6501,7 +6534,6 @@ int_t fit_collective_explicit_als
     real_t *restrict precomputedCtCw
 )
 {
-    should_stop_procedure = false;
     int_t retval = 0;
 
     if (k_user && U == NULL && nnz_U == 0) {
@@ -6661,7 +6693,18 @@ int_t fit_collective_explicit_als
 
     if (!use_cg) finalize_chol = false;
 
-    sig_t_ old_interrupt_handle = signal(SIGINT, set_interrup_global_variable);
+    sig_t_ old_interrupt_handle = NULL;
+    bool has_lock_on_handle = false;
+    #pragma omp critical
+    {
+        if (!handle_is_locked)
+        {
+            handle_is_locked = true;
+            has_lock_on_handle = true;
+            should_stop_procedure = false;
+            old_interrupt_handle = signal(SIGINT, set_interrup_global_variable);
+        }
+    }
 
     /* This avoids differences in the scaling of the precomputed matrices */
     if (w_main != 1.)
@@ -7229,6 +7272,16 @@ int_t fit_collective_explicit_als
                 B_bias[(size_t)(k_item+k+k_main)
                         + ix*(size_t)(k_item+k+k_main + 1)]
                  = 1.;
+    }
+
+    if (should_stop_procedure)
+    {
+        print_err_msg("Procedure aborted before starting optimization.\n");
+        retval = 3;
+        if (!handle_interrupt)
+            goto cleanup;
+        else
+            goto terminate_early;
     }
 
     if (verbose) {
@@ -7809,7 +7862,7 @@ int_t fit_collective_explicit_als
         check_interrupt:
             if (should_stop_procedure)
             {
-                if (precompute_for_predictions)
+                if (precompute_for_predictions && handle_interrupt)
                     goto terminate_early;
                 else
                     goto cleanup;
@@ -8224,9 +8277,16 @@ int_t fit_collective_explicit_als
         if (free_BiTBi) {
             free(precomputedBiTBi); precomputedBiTBi = NULL;
         }
-        signal(SIGINT, old_interrupt_handle);
-        if (should_stop_procedure) retval = 3;
-        should_stop_procedure = false;
+        #pragma omp critical
+        {
+            if (has_lock_on_handle && handle_is_locked)
+            {
+                signal(SIGINT, old_interrupt_handle);
+                handle_is_locked = false;
+            }
+            if (should_stop_procedure) retval = 3;
+        }
+        act_on_interrupt(retval, handle_interrupt, true);
     return retval;
 
     throw_oom:
@@ -8235,7 +8295,14 @@ int_t fit_collective_explicit_als
         back_to_precompute = false;
         if (verbose)
             print_oom_message();
-        should_stop_procedure = false;
+        #pragma omp critical
+        {
+            if (should_stop_procedure)
+            {
+                signal(SIGINT, old_interrupt_handle);
+                raise(SIGINT);
+            }
+        }
         goto cleanup;
     }
 }
@@ -8262,7 +8329,7 @@ int_t fit_collective_implicit_als
     real_t w_main, real_t w_user, real_t w_item,
     real_t *restrict w_main_multiplier,
     real_t alpha, bool adjust_weight, bool apply_log_transf,
-    int_t niter, int_t nthreads, bool verbose,
+    int_t niter, int_t nthreads, bool verbose, bool handle_interrupt,
     bool use_cg, int_t max_cg_steps, bool finalize_chol,
     bool nonneg, int_t max_cd_steps, bool nonneg_C, bool nonneg_D,
     bool precompute_for_predictions,
@@ -8271,7 +8338,6 @@ int_t fit_collective_implicit_als
     real_t *restrict precomputedBeTBeChol
 )
 {
-    should_stop_procedure = false;
     int_t retval = 0;
     if (k_user && U == NULL && nnz_U == 0) {
         if (verbose)
@@ -8370,7 +8436,18 @@ int_t fit_collective_implicit_als
 
     if (!use_cg) finalize_chol = false;
 
-    sig_t_ old_interrupt_handle = signal(SIGINT, set_interrup_global_variable);
+    sig_t_ old_interrupt_handle = NULL;
+    bool has_lock_on_handle = false;
+    #pragma omp critical
+    {
+        if (!handle_is_locked)
+        {
+            handle_is_locked = true;
+            has_lock_on_handle = true;
+            should_stop_procedure = false;
+            old_interrupt_handle = signal(SIGINT, set_interrup_global_variable);
+        }
+    }
 
     if (Xcsr_p == NULL || Xcsr_i == NULL || Xcsr == NULL ||
         Xcsc_p == NULL || Xcsc_i == NULL || Xcsc == NULL)
@@ -8591,6 +8668,14 @@ int_t fit_collective_implicit_als
             l1_lam_unique = l1_lam_unique_copy;
         }
         w_main = 1.;
+    }
+
+    if (should_stop_procedure)
+    {
+        if (!handle_interrupt)
+            goto cleanup;
+        else
+            goto precompute;
     }
     
 
@@ -8820,6 +8905,8 @@ int_t fit_collective_implicit_als
         check_interrupt:
             if (should_stop_procedure)
             {
+                if (!handle_interrupt)
+                    goto cleanup;
                 if (precompute_for_predictions)
                     goto precompute;
                 else
@@ -8941,9 +9028,16 @@ int_t fit_collective_implicit_als
         free(seed_arr);
         free(lam_unique_copy);
         free(l1_lam_unique_copy);
-        signal(SIGINT, old_interrupt_handle);
-        if (should_stop_procedure) retval = 3;
-        should_stop_procedure = false;
+        #pragma omp critical
+        {
+            if (has_lock_on_handle && handle_is_locked)
+            {
+                signal(SIGINT, old_interrupt_handle);
+                handle_is_locked = false;
+            }
+            if (should_stop_procedure) retval = 3;
+        }
+        act_on_interrupt(retval, handle_interrupt, true);
     return retval;
 
     throw_oom:
@@ -8951,7 +9045,14 @@ int_t fit_collective_implicit_als
         retval = 1;
         if (verbose)
             print_oom_message();
-        should_stop_procedure = false;
+        #pragma omp critical
+        {
+            if (should_stop_procedure)
+            {
+                signal(SIGINT, old_interrupt_handle);
+                raise(SIGINT);
+            }
+        }
         goto cleanup;
     }
 }

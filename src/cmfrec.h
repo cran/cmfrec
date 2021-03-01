@@ -388,6 +388,7 @@ void coo_to_csr_and_csc
 void row_means_csr(size_t indptr[], real_t *restrict values,
                    real_t *restrict output, int_t m, int_t nthreads);
 extern bool should_stop_procedure;
+extern bool handle_is_locked;
 void set_interrup_global_variable(int_t s);
 int_t lbfgs_printer_collective
 (
@@ -423,7 +424,9 @@ void append_ones_last_col
     real_t *restrict outp
 );
 void fill_lower_triangle(real_t A[], size_t n, size_t lda);
+void print_err_msg(const char *msg);
 void print_oom_message(void);
+void act_on_interrupt(int retval, bool handle_interrupt, bool print_msg);
 #ifdef _FOR_R
 void R_nan_to_C_nan(real_t arr[], size_t n);
 #endif
@@ -1278,7 +1281,7 @@ int_t fit_collective_explicit_lbfgs_internal
     real_t w_main, real_t w_user, real_t w_item,
     int_t n_corr_pairs, size_t maxiter, int_t seed,
     int_t nthreads, bool prefer_onepass,
-    bool verbose, int_t print_every,
+    bool verbose, int_t print_every, bool handle_interrupt,
     int_t *restrict niter, int_t *restrict nfev,
     real_t *restrict B_plus_bias
 );
@@ -1307,7 +1310,7 @@ int_t fit_collective_explicit_lbfgs
     real_t w_main, real_t w_user, real_t w_item,
     int_t n_corr_pairs, size_t maxiter,
     int_t nthreads, bool prefer_onepass,
-    bool verbose, int_t print_every,
+    bool verbose, int_t print_every, bool handle_interrupt,
     int_t *restrict niter, int_t *restrict nfev,
     bool precompute_for_predictions,
     bool include_all_X,
@@ -1343,7 +1346,7 @@ int_t fit_collective_explicit_als
     bool NA_as_zero_X, bool NA_as_zero_U, bool NA_as_zero_I,
     int_t k_main, int_t k_user, int_t k_item,
     real_t w_main, real_t w_user, real_t w_item, real_t w_implicit,
-    int_t niter, int_t nthreads, bool verbose,
+    int_t niter, int_t nthreads, bool verbose, bool handle_interrupt,
     bool use_cg, int_t max_cg_steps, bool finalize_chol,
     bool nonneg, int_t max_cd_steps, bool nonneg_C, bool nonneg_D,
     bool precompute_for_predictions,
@@ -1376,7 +1379,7 @@ int_t fit_collective_implicit_als
     real_t w_main, real_t w_user, real_t w_item,
     real_t *restrict w_main_multiplier,
     real_t alpha, bool adjust_weight, bool apply_log_transf,
-    int_t niter, int_t nthreads, bool verbose,
+    int_t niter, int_t nthreads, bool verbose, bool handle_interrupt,
     bool use_cg, int_t max_cg_steps, bool finalize_chol,
     bool nonneg, int_t max_cd_steps, bool nonneg_C, bool nonneg_D,
     bool precompute_for_predictions,
@@ -1912,7 +1915,7 @@ int_t fit_offsets_explicit_lbfgs_internal
     real_t w_user, real_t w_item,
     int_t n_corr_pairs, size_t maxiter, int_t seed,
     int_t nthreads, bool prefer_onepass,
-    bool verbose, int_t print_every,
+    bool verbose, int_t print_every, bool handle_interrupt,
     int_t *restrict niter, int_t *restrict nfev,
     real_t *restrict Am, real_t *restrict Bm,
     real_t *restrict Bm_plus_bias
@@ -1940,7 +1943,7 @@ int_t fit_offsets_explicit_lbfgs
     real_t w_user, real_t w_item,
     int_t n_corr_pairs, size_t maxiter,
     int_t nthreads, bool prefer_onepass,
-    bool verbose, int_t print_every,
+    bool verbose, int_t print_every, bool handle_interrupt,
     int_t *restrict niter, int_t *restrict nfev,
     bool precompute_for_predictions,
     real_t *restrict Am, real_t *restrict Bm,
@@ -1969,7 +1972,7 @@ int_t fit_offsets_als
     int_t niter,
     int_t nthreads, bool use_cg,
     int_t max_cg_steps, bool finalize_chol,
-    bool verbose,
+    bool verbose, bool handle_interrupt,
     bool precompute_for_predictions,
     real_t *restrict Am, real_t *restrict Bm,
     real_t *restrict Bm_plus_bias,
@@ -1996,7 +1999,7 @@ int_t fit_offsets_explicit_als
     int_t niter,
     int_t nthreads, bool use_cg,
     int_t max_cg_steps, bool finalize_chol,
-    bool verbose,
+    bool verbose, bool handle_interrupt,
     bool precompute_for_predictions,
     real_t *restrict Am, real_t *restrict Bm,
     real_t *restrict Bm_plus_bias,
@@ -2019,7 +2022,7 @@ int_t fit_offsets_implicit_als
     int_t niter,
     int_t nthreads, bool use_cg,
     int_t max_cg_steps, bool finalize_chol,
-    bool verbose,
+    bool verbose, bool handle_interrupt,
     bool precompute_for_predictions,
     real_t *restrict Am, real_t *restrict Bm,
     real_t *restrict precomputedBtB
@@ -2256,7 +2259,7 @@ int_t fit_content_based_lbfgs
     int_t I_row[], int_t I_col[], real_t *restrict I_sp, size_t nnz_I,
     int_t n_corr_pairs, size_t maxiter,
     int_t nthreads, bool prefer_onepass,
-    bool verbose, int_t print_every,
+    bool verbose, int_t print_every, bool handle_interrupt,
     int_t *restrict niter, int_t *restrict nfev,
     real_t *restrict Am, real_t *restrict Bm
 );

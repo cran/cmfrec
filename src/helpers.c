@@ -1001,13 +1001,13 @@ void row_means_csr(size_t indptr[], real_t *restrict values,
 }
 
 bool should_stop_procedure = false;
+bool handle_is_locked = false;
 void set_interrup_global_variable(int_t s)
 {
-    fprintf(stderr, "Error: procedure was interrupted\n");
-    #if !defined(_FOR_R)
-    fflush(stderr);
-    #endif
-    should_stop_procedure = true;
+    #pragma omp critical
+    {
+        should_stop_procedure = true;
+    }
 }
 
 int_t lbfgs_printer_collective
@@ -1142,12 +1142,28 @@ void fill_lower_triangle(real_t A[], size_t n, size_t lda)
             A[col + row*lda] = A[row + col*lda];
 }
 
-void print_oom_message(void)
+void print_err_msg(const char *msg)
 {
-    fprintf(stderr, "Error: could not allocate enough memory.\n");
+    fprintf(stderr, msg);
     #ifndef _FOR_R
     fflush(stderr);
     #endif
+}
+
+void print_oom_message(void)
+{
+    print_err_msg("Error: could not allocate enough memory.\n");
+}
+
+void act_on_interrupt(int retval, bool handle_interrupt, bool print_msg)
+{
+    if (retval == 3)
+    {
+        if (print_msg)
+            print_err_msg(" Error: procedure was interrupted.\n");
+        if (!handle_interrupt)
+            raise(SIGINT);
+    }
 }
 
 #ifdef _FOR_R
