@@ -27,6 +27,7 @@ CMF(
   add_implicit_features = FALSE,
   scale_lam = FALSE,
   scale_lam_sideinfo = FALSE,
+  scale_bias_const = FALSE,
   k_user = 0L,
   k_item = 0L,
   k_main = 0L,
@@ -35,6 +36,8 @@ CMF(
   w_item = 1,
   w_implicit = 0.5,
   l1_lambda = 0,
+  center_U = TRUE,
+  center_I = TRUE,
   maxiter = 800L,
   niter = 10L,
   parallelize = "separate",
@@ -71,6 +74,8 @@ CMF_implicit(
   w_user = 1,
   w_item = 1,
   l1_lambda = 0,
+  center_U = TRUE,
+  center_I = TRUE,
   niter = 10L,
   max_cg_steps = 3L,
   finalize_chol = FALSE,
@@ -91,12 +96,15 @@ MostPopular(
   X,
   weight = NULL,
   implicit = FALSE,
-  apply_log_transf = FALSE,
-  nonneg = FALSE,
+  center = TRUE,
   user_bias = ifelse(implicit, FALSE, TRUE),
   lambda = 10,
   alpha = 1,
-  scale_lam = FALSE
+  NA_as_zero = FALSE,
+  apply_log_transf = FALSE,
+  nonneg = FALSE,
+  scale_lam = FALSE,
+  scale_bias_const = FALSE
 )
 
 ContentBased(
@@ -367,7 +375,10 @@ has received.}
 
 \item{center}{Whether to center the "X" data by subtracting the mean value. For recommender
 systems, it's highly recommended to pass `TRUE` here, the more so if the
-model has user and/or item biases.}
+model has user and/or item biases.
+
+For `MostPopular`, if passing `implicit=TRUE`, this option will be ignored
+(assumed `FALSE`).}
 
 \item{add_implicit_features}{Whether to automatically add so-called implicit features from the data,
 as in reference [5] and similar. If using this for recommender systems
@@ -386,8 +397,24 @@ optimal value for `lambda` will be much smaller
 (and likely below 0.1).
 This option tends to give better results, but
 requires more hyperparameter tuning.
-Only supported for the ALS method. For the `MostPopular` model,
-this is not supported when passing `implicit=TRUE`.}
+Only supported for the ALS method.
+
+For the `MostPopular` model,
+this is not supported when passing `implicit=TRUE`, and it is not recommended
+to use for it, as it will tend to
+recommend items which have a single user interaction with
+the maximum possible value (e.g. 5-star movies from only 1 user).
+
+When generating factors based on side information alone,
+if passing `scale_lam_sideinfo`, will regularize assuming
+there was one observation present. Be aware that using this option
+\bold{without} `scale_lam_sideinfo=TRUE` can lead to bad cold-start
+recommendations as it will set a very small regularization for
+users who have no 'X' data.
+
+Warning: in smaller datasets, using this option can result in top-N
+recommendations having mostly items with very few interactions (see
+parameter `scale_bias_const`).}
 
 \item{scale_lam_sideinfo}{Whether to scale (increase) the regularization
 parameter for each row of the "A" and "B"
@@ -395,6 +422,17 @@ matrices according to the number of non-missing
 entries in both `X` and the side info matrices
 `U` and `I`. If passing `TRUE` here, `scale_lam`
 will also be assumed to be `TRUE`.}
+
+\item{scale_bias_const}{When passing `scale_lam=TRUE` and `user_bias=TRUE` or `item_bias=TRUE`,
+whether to apply the same scaling to the regularization \bold{of the biases} to all
+users and items, according to the average number of non-missing entries rather
+than to the number of entries for each specific user/item.
+
+While this tends to result in worse RMSE, it tends to make the top-N
+recommendations less likely to select items with only a few interactions
+from only a few users.
+
+Ignored when passing `scale_lam=FALSE` or not using user/item biases.}
 
 \item{k_user}{Number of factors in the factorizing `A` and `C` matrices which will be used
 only for the `U` and `U_bin` matrices, while being ignored for the `X` matrix.
@@ -443,6 +481,14 @@ fit through a coordinate descent procedure, which is significantly
 slower than the Cholesky method with L2 regularization.
 Only supported with the ALS method.
 Not recommended.}
+
+\item{center_U}{Whether to center the 'U' matrix column-by-column. Be aware that this
+is a simple mean centering without regularization. One might want to
+turn this option off when using `NA_as_zero_user=TRUE`.}
+
+\item{center_I}{Whether to center the 'I' matrix column-by-column. Be aware that this
+is a simple mean centering without regularization. One might want to
+turn this option off when using `NA_as_zero_item=TRUE`.}
 
 \item{maxiter}{Maximum L-BFGS iterations to perform. The procedure will halt if it
 has not converged after this number of updates. Note that the `CMF` model is likely to
@@ -536,11 +582,19 @@ and use a higher regularization coupled with more iterations..}
 
 \item{nonneg_C}{Whether to constrain the `C` matrix to be non-negative.
 In order for this to work correctly, the `U` input data must also be
-non-negative.}
+non-negative.
+
+Note: by default, the 'U' data will be centered by columns, which
+doesn't play well with non-negativity constraints. One will likely
+want to pass `center_U=FALSE` along with this.}
 
 \item{nonneg_D}{Whether to constrain the `D` matrix to be non-negative.
 In order for this to work correctly, the `I` input data must also be
-non-negative.}
+non-negative.
+
+Note: by default, the 'I' data will be centered by columns, which
+doesn't play well with non-negativity constraints. One will likely
+want to pass `center_I=FALSE` along with this.}
 
 \item{max_cd_steps}{Maximum number of coordinate descent updates to perform per iteration.
 Pass zero for no limit.
@@ -696,8 +750,8 @@ likes and dislikes), whereas `CMF_implicit` is intended for implicit feedback da
 dislikes and the values are treated as confidence scores).
 
 The `MostPopular` model is a simpler heuristic implemented for comparison purposes
-which is equivalent to either `CMF` or `CMF_implicit` with `k=1` (or alternatively,
-`k=0` plus user/item biases). If a personalized model is not able to beat this
+which is equivalent to either `CMF` or `CMF_implicit` with
+`k=0` plus user/item biases. If a personalized model is not able to beat this
 heuristic under the evaluation metrics of interest, chances are that such personalized
 model needs better tuning.
 
@@ -856,10 +910,6 @@ speaking, the regularization parameter in this case is applied to the
 for new data will offer an option `exact` for determining whether to apply the
 regularization to the \eqn{\mathbf{A}, \mathbf{B}}{A, B} matrices instead.
 
-Be aware that the optimization procedures rely heavily on BLAS and LAPACK function
-calls, and as such benefit from using optimized libraries for them such as
-MKL or OpenBLAS.
-
 For reproducibility, the initializations of the model matrices (always initialized
 as `~ Normal(0, 1)`) can be controlled
 through `set.seed`, but if using parallelizations, there are potential sources
@@ -874,13 +924,57 @@ by columns/items and also pass the data data with item indices sorted beforehand
 to the prediction functions. The package does not perform any indices sorting or
 de-duplication of entries of sparse matrices.
 }
+\section{Performance tips}{
+
+It is recommended to have the \href{https://cran.r-project.org/package=RhpcBLASctl}{RhpcBLASctl}
+package installed for better performance - if available, will be used to control the number
+of internal BLAS threads before entering a multi-threaded region, in order to avoid oversubscription of
+threads. This can become an issue when using OpenBLAS if it is the 'pthreads' variant.
+
+This package relies heavily on BLAS and LAPACK functions. For better performance, it is
+recommended to use an optimized backed for them, such as MKL or OpenBLAS.
+
+In Windows, the easiest way of getting MKL is to use Microsoft's
+\href{https://mran.microsoft.com}{MRAN distribution of R}, while OpenBLAS can be obtained by
+following \href{https://github.com/david-cortes/R-openblas-in-windows}{this tutorial}
+(no new R installation required).
+
+In Linux, these can be installed through the system's package manager. In Debian and
+Debian-based distributions such as Ubuntu, the default BLAS and LAPACK can be configured
+through the alternatives system (see the
+\href{https://wiki.debian.org/DebianScience/LinearAlgebraLibraries}{Debian docs} or
+\href{https://stackoverflow.com/a/49842944/5941695}{this post for MKL}).
+
+By default, in a regular x86-64 CPU, R will compile all packages with generic options
+`-msse2` and `-O2`, which misses lots of performance optimizations, and in particular,
+`cmfrec` will not be able to achieve its maximum performance with them.
+
+It is recommended to use compilation options `-O3`, `-march=native` and `-std=c99`.
+These can be activated in multiple ways: \itemize{
+\item Installing `cmfrec` from source, but modifying the `Makevars` file (it has lines
+that can be uncommented in order to enable these optimizations).
+\item Modifying the global `Makeconf` variable. This is a file which defines the default
+compilation options for \bold{all} R packages, so be careful about it. In Debian,
+this file will typically be under `/etc/R/`, but this can vary in other operating systems.
+In this file, replace all occurences of `-O2` with `-O3`, and all occurrences of
+`-msse2` with `-march=native` (e.g. open them in some text editor or in RStudio and
+use the 'Replace All' functionality).
+\item Creating a default user `Makevars` file, which will be under `~/.R/Makevars`.
+In this file, do all the same text replacements as in the point above for `Makeconf`.
+If the file is empty, simply add this line: `PKG_CFLAGS += -std=c99 -O3 -march=native`.
+If using GCC, preferrably change `-std=c99` to `-std=gnu99`.
+}
+}
+
 \examples{
+### See the package vignette for an extended version of this example
+
 library(cmfrec)
-if (require("recommenderlab") && require("Matrix") && require("rsparse")) {
+if (require("recommenderlab") && require("MatrixExtra")) {
     ### Load the ML100K dataset (movie ratings)
     ### (users are rows, items are columns)
     data("MovieLense")
-    X <- as(MovieLense@data, "dgTMatrix")
+    X <- as.coo.matrix(MovieLense@data)
 
     ### Will add basic side information about the users
     U <- MovieLenseUser
@@ -893,7 +987,7 @@ if (require("recommenderlab") && require("Matrix") && require("rsparse")) {
     I$title <- NULL
     I$year  <- NULL
     I$url   <- NULL
-    I <- as(as.matrix(I), "TsparseMatrix")
+    I <- as.coo.matrix(I)
 
     ### Fit a factorization model
     ### (it's recommended to change the hyperparameters
@@ -908,22 +1002,21 @@ if (require("recommenderlab") && require("Matrix") && require("rsparse")) {
     predict(model, user=c(1,2,10), item=c(3,5,9))
 
     ### Recommend top-5 for user ID = 10
-    ### (Note that "Matrix" objects start their numeration at 0)
-    seen_by_user <- MovieLense@data[10, , drop=FALSE]
-    seen_by_user <- seen_by_user@i + 1L
+    ### (Note that 'MatrixExtra' makes this return a 'sparseVector')
+    seen_by_user <- MovieLense@data[10, , drop=TRUE]@i
     rec <- topN(model, user=10, n=5, exclude=seen_by_user)
     rec
 
     ### Print them in a more understandable format
     movie_names <- colnames(X)
-    n_ratings <- colSums(as(MovieLense@data[, rec, drop=FALSE], "nsparseMatrix"))
-    avg_ratings <- colSums(MovieLense@data[, rec, drop=FALSE]) / n_ratings
+    n_ratings <- colSums(as.csc.matrix(X, binary=TRUE))
+    avg_ratings <- colSums(as.csc.matrix(X)) / n_ratings
     print_recommended <- function(rec, txt) {
         cat(txt, ":\n",
             paste(paste(1:length(rec), ". ", sep=""),
                   movie_names[rec],
-                  " - Avg rating:", round(avg_ratings, 2),
-                  ", #ratings: ", n_ratings,
+                  " - Avg rating:", round(avg_ratings[rec], 2),
+                  ", #ratings: ", n_ratings[rec],
                   collapse="\n", sep=""),
             "\n", sep="")
     }
@@ -932,7 +1025,7 @@ if (require("recommenderlab") && require("Matrix") && require("rsparse")) {
 
     ### Recommend assuming it is a new user,
     ### based on its data (ratings + side info)
-    x_user <- as(X[10, , drop=FALSE], "sparseVector")
+    x_user <- X[10, , drop=TRUE] ## <- this is a 'sparseVector'
     u_user <- U[10, ]
     rec_new <- topN_new(model, n=5, X=x_user, U=u_user, exclude=seen_by_user)
     cat("lists are identical: ", identical(rec_new, rec), "\n")
@@ -953,8 +1046,8 @@ if (require("recommenderlab") && require("Matrix") && require("rsparse")) {
     cat("diff: ", factors_user - factors_new, "\n")
 
     ### Can also calculate them in batch
-    ### (slicing is provided by package "rsparse")
-    Xslice <- as(X, "RsparseMatrix")[1:10, , drop=FALSE]
+    ### (slicing is provided by package "MatrixExtra")
+    Xslice <- as.csr.matrix(X)[1:10, , drop=FALSE]
     Uslice <- U[1:10, , drop=FALSE]
     factors_multiple <- factors(model, X=Xslice, U=Uslice)
     cat("diff: ", factors_multiple[10, , drop=TRUE] - factors_new, "\n")

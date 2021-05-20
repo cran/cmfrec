@@ -56,8 +56,8 @@ NULL
 #' dislikes and the values are treated as confidence scores).
 #' 
 #' The `MostPopular` model is a simpler heuristic implemented for comparison purposes
-#' which is equivalent to either `CMF` or `CMF_implicit` with `k=1` (or alternatively,
-#' `k=0` plus user/item biases). If a personalized model is not able to beat this
+#' which is equivalent to either `CMF` or `CMF_implicit` with
+#' `k=0` plus user/item biases. If a personalized model is not able to beat this
 #' heuristic under the evaluation metrics of interest, chances are that such personalized
 #' model needs better tuning.
 #' 
@@ -104,6 +104,45 @@ NULL
 #' package).
 #' }
 #' 
+#' @section Performance tips:
+#' It is recommended to have the \href{https://cran.r-project.org/package=RhpcBLASctl}{RhpcBLASctl}
+#' package installed for better performance - if available, will be used to control the number
+#' of internal BLAS threads before entering a multi-threaded region, in order to avoid oversubscription of
+#' threads. This can become an issue when using OpenBLAS if it is the 'pthreads' variant.
+#' 
+#' This package relies heavily on BLAS and LAPACK functions. For better performance, it is
+#' recommended to use an optimized backed for them, such as MKL or OpenBLAS.
+#' 
+#' In Windows, the easiest way of getting MKL is to use Microsoft's
+#' \href{https://mran.microsoft.com}{MRAN distribution of R}, while OpenBLAS can be obtained by
+#' following \href{https://github.com/david-cortes/R-openblas-in-windows}{this tutorial}
+#' (no new R installation required).
+#' 
+#' In Linux, these can be installed through the system's package manager. In Debian and
+#' Debian-based distributions such as Ubuntu, the default BLAS and LAPACK can be configured
+#' through the alternatives system (see the
+#' \href{https://wiki.debian.org/DebianScience/LinearAlgebraLibraries}{Debian docs} or
+#' \href{https://stackoverflow.com/a/49842944/5941695}{this post for MKL}).
+#' 
+#' By default, in a regular x86-64 CPU, R will compile all packages with generic options
+#' `-msse2` and `-O2`, which misses lots of performance optimizations, and in particular,
+#' `cmfrec` will not be able to achieve its maximum performance with them.
+#' 
+#' It is recommended to use compilation options `-O3`, `-march=native` and `-std=c99`.
+#' These can be activated in multiple ways: \itemize{
+#' \item Installing `cmfrec` from source, but modifying the `Makevars` file (it has lines
+#' that can be uncommented in order to enable these optimizations).
+#' \item Modifying the global `Makeconf` variable. This is a file which defines the default
+#' compilation options for \bold{all} R packages, so be careful about it. In Debian,
+#' this file will typically be under `/etc/R/`, but this can vary in other operating systems.
+#' In this file, replace all occurences of `-O2` with `-O3`, and all occurrences of
+#' `-msse2` with `-march=native` (e.g. open them in some text editor or in RStudio and
+#' use the 'Replace All' functionality).
+#' \item Creating a default user `Makevars` file, which will be under `~/.R/Makevars`.
+#' In this file, do all the same text replacements as in the point above for `Makeconf`.
+#' If the file is empty, simply add this line: `PKG_CFLAGS += -std=c99 -O3 -march=native`.
+#' If using GCC, preferrably change `-std=c99` to `-std=gnu99`.
+#' }
 #' @param X The main matrix with interactions data to factorize (e.g. movie ratings by users,
 #' bag-of-words representations of texts, etc.). The package is built with
 #' recommender systems in mind, and will assume that `X` is a matrix in which users
@@ -256,14 +295,40 @@ NULL
 #' (and likely below 0.1).
 #' This option tends to give better results, but
 #' requires more hyperparameter tuning.
-#' Only supported for the ALS method. For the `MostPopular` model,
-#' this is not supported when passing `implicit=TRUE`.
+#' Only supported for the ALS method.
+#' 
+#' For the `MostPopular` model,
+#' this is not supported when passing `implicit=TRUE`, and it is not recommended
+#' to use for it, as it will tend to
+#' recommend items which have a single user interaction with
+#' the maximum possible value (e.g. 5-star movies from only 1 user).
+#' 
+#' When generating factors based on side information alone,
+#' if passing `scale_lam_sideinfo`, will regularize assuming
+#' there was one observation present. Be aware that using this option
+#' \bold{without} `scale_lam_sideinfo=TRUE` can lead to bad cold-start
+#' recommendations as it will set a very small regularization for
+#' users who have no 'X' data.
+#' 
+#' Warning: in smaller datasets, using this option can result in top-N
+#' recommendations having mostly items with very few interactions (see
+#' parameter `scale_bias_const`).
 #' @param scale_lam_sideinfo Whether to scale (increase) the regularization
 #' parameter for each row of the "A" and "B"
 #' matrices according to the number of non-missing
 #' entries in both `X` and the side info matrices
 #' `U` and `I`. If passing `TRUE` here, `scale_lam`
 #' will also be assumed to be `TRUE`.
+#' @param scale_bias_const When passing `scale_lam=TRUE` and `user_bias=TRUE` or `item_bias=TRUE`,
+#' whether to apply the same scaling to the regularization \bold{of the biases} to all
+#' users and items, according to the average number of non-missing entries rather
+#' than to the number of entries for each specific user/item.
+#' 
+#' While this tends to result in worse RMSE, it tends to make the top-N
+#' recommendations less likely to select items with only a few interactions
+#' from only a few users.
+#' 
+#' Ignored when passing `scale_lam=FALSE` or not using user/item biases.
 #' @param l1_lambda Regularization parameter to apply to the L1 norm of the model matrices.
 #' Can also pass different values for each matrix (see `lambda` for
 #' details). Note that, when adding L1 regularization, the model will be
@@ -271,6 +336,12 @@ NULL
 #' slower than the Cholesky method with L2 regularization.
 #' Only supported with the ALS method.
 #' Not recommended.
+#' @param center_U Whether to center the 'U' matrix column-by-column. Be aware that this
+#' is a simple mean centering without regularization. One might want to
+#' turn this option off when using `NA_as_zero_user=TRUE`.
+#' @param center_I Whether to center the 'I' matrix column-by-column. Be aware that this
+#' is a simple mean centering without regularization. One might want to
+#' turn this option off when using `NA_as_zero_item=TRUE`.
 #' @param method Optimization method used to fit the model. If passing `lbfgs`, will
 #' fit it through a gradient-based approach using an L-BFGS optimizer, and if
 #' passing `als`, will fit it through the ALS (alternating least-squares) method.
@@ -323,6 +394,9 @@ NULL
 #' @param center Whether to center the "X" data by subtracting the mean value. For recommender
 #' systems, it's highly recommended to pass `TRUE` here, the more so if the
 #' model has user and/or item biases.
+#' 
+#' For `MostPopular`, if passing `implicit=TRUE`, this option will be ignored
+#' (assumed `FALSE`).
 #' @param k_user Number of factors in the factorizing `A` and `C` matrices which will be used
 #' only for the `U` and `U_bin` matrices, while being ignored for the `X` matrix.
 #' These will be the first factors of the matrices once the model is fit.
@@ -458,9 +532,17 @@ NULL
 #' @param nonneg_C Whether to constrain the `C` matrix to be non-negative.
 #' In order for this to work correctly, the `U` input data must also be
 #' non-negative.
+#' 
+#' Note: by default, the 'U' data will be centered by columns, which
+#' doesn't play well with non-negativity constraints. One will likely
+#' want to pass `center_U=FALSE` along with this.
 #' @param nonneg_D Whether to constrain the `D` matrix to be non-negative.
 #' In order for this to work correctly, the `I` input data must also be
 #' non-negative.
+#' 
+#' Note: by default, the 'I' data will be centered by columns, which
+#' doesn't play well with non-negativity constraints. One will likely
+#' want to pass `center_I=FALSE` along with this.
 #' @param max_cd_steps Maximum number of coordinate descent updates to perform per iteration.
 #' Pass zero for no limit.
 #' The procedure will only use coordinate descent updates when having
@@ -649,10 +731,6 @@ NULL
 #' for new data will offer an option `exact` for determining whether to apply the
 #' regularization to the \eqn{\mathbf{A}, \mathbf{B}}{A, B} matrices instead.
 #' 
-#' Be aware that the optimization procedures rely heavily on BLAS and LAPACK function
-#' calls, and as such benefit from using optimized libraries for them such as
-#' MKL or OpenBLAS.
-#' 
 #' For reproducibility, the initializations of the model matrices (always initialized
 #' as `~ Normal(0, 1)`) can be controlled
 #' through `set.seed`, but if using parallelizations, there are potential sources
@@ -667,12 +745,14 @@ NULL
 #' to the prediction functions. The package does not perform any indices sorting or
 #' de-duplication of entries of sparse matrices.
 #' @examples
+#' ### See the package vignette for an extended version of this example
+#' 
 #' library(cmfrec)
-#' if (require("recommenderlab") && require("Matrix") && require("rsparse")) {
+#' if (require("recommenderlab") && require("MatrixExtra")) {
 #'     ### Load the ML100K dataset (movie ratings)
 #'     ### (users are rows, items are columns)
 #'     data("MovieLense")
-#'     X <- as(MovieLense@data, "dgTMatrix")
+#'     X <- as.coo.matrix(MovieLense@data)
 #' 
 #'     ### Will add basic side information about the users
 #'     U <- MovieLenseUser
@@ -685,7 +765,7 @@ NULL
 #'     I$title <- NULL
 #'     I$year  <- NULL
 #'     I$url   <- NULL
-#'     I <- as(as.matrix(I), "TsparseMatrix")
+#'     I <- as.coo.matrix(I)
 #' 
 #'     ### Fit a factorization model
 #'     ### (it's recommended to change the hyperparameters
@@ -700,22 +780,21 @@ NULL
 #'     predict(model, user=c(1,2,10), item=c(3,5,9))
 #' 
 #'     ### Recommend top-5 for user ID = 10
-#'     ### (Note that "Matrix" objects start their numeration at 0)
-#'     seen_by_user <- MovieLense@data[10, , drop=FALSE]
-#'     seen_by_user <- seen_by_user@i + 1L
+#'     ### (Note that 'MatrixExtra' makes this return a 'sparseVector')
+#'     seen_by_user <- MovieLense@data[10, , drop=TRUE]@i
 #'     rec <- topN(model, user=10, n=5, exclude=seen_by_user)
 #'     rec
 #' 
 #'     ### Print them in a more understandable format
 #'     movie_names <- colnames(X)
-#'     n_ratings <- colSums(as(MovieLense@data[, rec, drop=FALSE], "nsparseMatrix"))
-#'     avg_ratings <- colSums(MovieLense@data[, rec, drop=FALSE]) / n_ratings
+#'     n_ratings <- colSums(as.csc.matrix(X, binary=TRUE))
+#'     avg_ratings <- colSums(as.csc.matrix(X)) / n_ratings
 #'     print_recommended <- function(rec, txt) {
 #'         cat(txt, ":\n",
 #'             paste(paste(1:length(rec), ". ", sep=""),
 #'                   movie_names[rec],
-#'                   " - Avg rating:", round(avg_ratings, 2),
-#'                   ", #ratings: ", n_ratings,
+#'                   " - Avg rating:", round(avg_ratings[rec], 2),
+#'                   ", #ratings: ", n_ratings[rec],
 #'                   collapse="\n", sep=""),
 #'             "\n", sep="")
 #'     }
@@ -724,7 +803,7 @@ NULL
 #' 
 #'     ### Recommend assuming it is a new user,
 #'     ### based on its data (ratings + side info)
-#'     x_user <- as(X[10, , drop=FALSE], "sparseVector")
+#'     x_user <- X[10, , drop=TRUE] ## <- this is a 'sparseVector'
 #'     u_user <- U[10, ]
 #'     rec_new <- topN_new(model, n=5, X=x_user, U=u_user, exclude=seen_by_user)
 #'     cat("lists are identical: ", identical(rec_new, rec), "\n")
@@ -745,8 +824,8 @@ NULL
 #'     cat("diff: ", factors_user - factors_new, "\n")
 #' 
 #'     ### Can also calculate them in batch
-#'     ### (slicing is provided by package "rsparse")
-#'     Xslice <- as(X, "RsparseMatrix")[1:10, , drop=FALSE]
+#'     ### (slicing is provided by package "MatrixExtra")
+#'     Xslice <- as.csr.matrix(X)[1:10, , drop=FALSE]
 #'     Uslice <- U[1:10, , drop=FALSE]
 #'     factors_multiple <- factors(model, X=Xslice, U=Uslice)
 #'     cat("diff: ", factors_multiple[10, , drop=TRUE] - factors_new, "\n")
@@ -764,10 +843,11 @@ validate.inputs <- function(model, implicit=FALSE,
                             user_bias=TRUE, item_bias=TRUE, center=FALSE,
                             k_user=0L, k_item=0L, k_main=0L, k_sec=0L,
                             w_main=1., w_user=1., w_item=1., w_implicit=0.5,
-                            l1_lambda=0.,
+                            l1_lambda=0., center_U=TRUE, center_I=TRUE,
                             alpha=1., downweight=FALSE,
                             add_implicit_features=FALSE,
                             scale_lam=FALSE, scale_lam_sideinfo=FALSE,
+                            scale_bias_const=FALSE,
                             add_intercepts=TRUE,
                             start_with_ALS=FALSE,
                             apply_log_transf=FALSE,
@@ -798,6 +878,8 @@ validate.inputs <- function(model, implicit=FALSE,
     user_bias  <-  check.bool(user_bias, "user_bias")
     item_bias  <-  check.bool(item_bias, "item_bias")
     center     <-  check.bool(center, "center")
+    center_U   <-  check.bool(center_U, "center_U")
+    center_I   <-  check.bool(center_U, "center_I")
     finalize_chol    <-  check.bool(finalize_chol, "finalize_chol")
     NA_as_zero       <-  check.bool(NA_as_zero, "NA_as_zero")
     NA_as_zero_user  <-  check.bool(NA_as_zero_user, "NA_as_zero_user")
@@ -817,6 +899,7 @@ validate.inputs <- function(model, implicit=FALSE,
     add_implicit_features       <-  check.bool(add_implicit_features, "add_implicit_features")
     scale_lam                   <-  check.bool(scale_lam, "scale_lam")
     scale_lam_sideinfo          <-  check.bool(scale_lam_sideinfo, "scale_lam_sideinfo")
+    scale_bias_const            <-  check.bool(scale_bias_const, "scale_bias_const")
     
     w_main      <-  check.pos.real(w_main, "w_main")
     w_user      <-  check.pos.real(w_user, "w_user")
@@ -842,8 +925,6 @@ validate.inputs <- function(model, implicit=FALSE,
         stop("Cannot pass 'k_item' with no 'I' data.")
     if (method == "als" && (!is.null(U_bin) || !is.null(I_bin)))
         stop("Cannot use 'method=als' when there is 'U_bin' or 'I_bin'.")
-    if (implicit && user_bias)
-        stop("Cannot fit user biases with 'implicit=TRUE'.")
     if (implicit && scale_lam)
         stop("'scale_lam' not supported for implicit-feedback.")
     if ((k_user+k+k_main+1)^2 > .Machine$integer.max)
@@ -1021,12 +1102,23 @@ validate.inputs <- function(model, implicit=FALSE,
             }
         }
     }
+
+    if (model == "MostPopular" && implicit) {
+        if (NROW(processed_X$Xarr))
+            stop("Cannot pass dense 'X' with 'implicit=TRUE'.")
+    }
     
-    msg_na <- "'NA_as_zero' not meaningful when passing dense data, will be ignored."
     if (NA_as_zero) {
-        if (NROW(processed_X$Xarr)) {
-            warning(msg_na)
+        if (implicit) {
+            warning("'NA_as_zero' ignored with 'implicit=TRUE'.")
             NA_as_zero <- FALSE
+        }
+        if (!include_all_X) {
+            warning("Warning: 'include_all_X' is forced to 'TRUE' when using 'NA_as_zero'.")
+            include_all_X <- TRUE
+        }
+        if (NROW(processed_X$Xarr)) {
+            warning("Warning: using 'NA_as_zero', but passed dense 'X'.")
         } else {
             processed_X$m <- max(c(processed_X$m, processed_U$m, processed_U_bin$m))
             processed_X$n <- max(c(processed_X$n, processed_I$m, processed_I_bin$m))
@@ -1034,21 +1126,21 @@ validate.inputs <- function(model, implicit=FALSE,
     }
     if (NA_as_zero_user) {
         if (NROW(processed_U$Uarr)) {
-            warning(msg_na)
-            NA_as_zero_user <- FALSE
+            warning("Warning: using 'NA_as_zero_user', but passed dense 'U'.")
         } else if (processed_U$m) {
             processed_U$m <- max(c(processed_U$m, processed_X$m, processed_U_bin$m))
         } else {
+            warning("Warning: passed 'NA_as_zero_user', but no 'U' data.")
             NA_as_zero_user <- FALSE
         }
     }
     if (NA_as_zero_item) {
         if (NROW(processed_I$Uarr)) {
-            warning(msg_na)
-            NA_as_zero_item <- FALSE
+            warning("Warning: using 'NA_as_zero_item', but passed dense 'I'.")
         } else if (processed_I$m) {
             processed_I$m <- max(c(processed_I$m, processed_X$n, processed_I_bin$m))
         } else {
+            warning("Warning: passed 'NA_as_zero_item', but no 'I' data.")
             NA_as_zero_item <- FALSE
         }
     }
@@ -1066,8 +1158,14 @@ validate.inputs <- function(model, implicit=FALSE,
         }
     }
     
+    if (implicit)
+        center <- FALSE
     if (nonneg && center)
         warning("Warning: fitting a model with centering and non-negativity constraints.")
+    if (center_U && nonneg_C)
+        warning("Warning: will fit a model with centering in 'U' and non-negativity constraints in 'C'.")
+    if (center_I && nonneg_D)
+        warnings("Warning: will fit a model with centering in 'I' and non-negativity constraints in 'D'.")
     if (NA_as_zero && add_implicit_features)
         warning("Warning: will add implicit features while having 'NA_as_zero'.")
     
@@ -1085,11 +1183,12 @@ validate.inputs <- function(model, implicit=FALSE,
         user_bias = user_bias, item_bias = item_bias,
         k_user = k_user, k_item = k_item, k_main = k_main, k_sec = k_sec,
         w_main = w_main, w_user = w_user, w_item = w_item, w_implicit = w_implicit,
-        l1_lambda = l1_lambda,
+        l1_lambda = l1_lambda, center_U = center_U, center_I = center_I,
         alpha = alpha, downweight = downweight,
         implicit = implicit,
         add_implicit_features = add_implicit_features,
         scale_lam = scale_lam, scale_lam_sideinfo = scale_lam_sideinfo,
+        scale_bias_const = scale_bias_const,
         add_intercepts = add_intercepts,
         start_with_ALS = start_with_ALS,
         apply_log_transf = apply_log_transf,
@@ -1111,10 +1210,10 @@ validate.inputs <- function(model, implicit=FALSE,
 CMF <- function(X, U=NULL, I=NULL, U_bin=NULL, I_bin=NULL, weight=NULL,
                 k=40L, lambda=10., method="als", use_cg=TRUE,
                 user_bias=TRUE, item_bias=TRUE, center=TRUE, add_implicit_features=FALSE,
-                scale_lam=FALSE, scale_lam_sideinfo=FALSE,
+                scale_lam=FALSE, scale_lam_sideinfo=FALSE, scale_bias_const=FALSE,
                 k_user=0L, k_item=0L, k_main=0L,
                 w_main=1., w_user=1., w_item=1., w_implicit=0.5,
-                l1_lambda=0.,
+                l1_lambda=0., center_U=TRUE, center_I=TRUE,
                 maxiter=800L, niter=10L, parallelize="separate", corr_pairs=4L,
                 max_cg_steps=3L, finalize_chol=TRUE,
                 NA_as_zero=FALSE, NA_as_zero_user=FALSE, NA_as_zero_item=FALSE,
@@ -1130,10 +1229,11 @@ CMF <- function(X, U=NULL, I=NULL, U_bin=NULL, I_bin=NULL, weight=NULL,
                               user_bias = user_bias, item_bias = item_bias, center = center,
                               add_implicit_features = add_implicit_features,
                               scale_lam = scale_lam, scale_lam_sideinfo = scale_lam_sideinfo,
+                              scale_bias_const = scale_bias_const,
                               k_user = k_user, k_item = k_item, k_main = k_main,
                               w_main = w_main, w_user = w_user, w_item = w_item,
                               w_implicit = w_implicit,
-                              l1_lambda = l1_lambda,
+                              l1_lambda = l1_lambda, center_U = center_U, center_I = center_I,
                               maxiter = maxiter, niter = niter,
                               parallelize = parallelize, corr_pairs = corr_pairs,
                               max_cg_steps = max_cg_steps, finalize_chol = finalize_chol,
@@ -1156,10 +1256,11 @@ CMF <- function(X, U=NULL, I=NULL, U_bin=NULL, I_bin=NULL, weight=NULL,
                 user_bias = inputs$user_bias, item_bias = inputs$item_bias, center = inputs$center,
                 add_implicit_features = inputs$add_implicit_features,
                 scale_lam = inputs$scale_lam, scale_lam_sideinfo = inputs$scale_lam_sideinfo,
+                scale_bias_const = inputs$scale_bias_const,
                 k_user = inputs$k_user, k_item = inputs$k_item, k_main = inputs$k_main,
                 w_main = inputs$w_main, w_user = inputs$w_user, w_item = inputs$w_item,
                 w_implicit = inputs$w_implicit,
-                l1_lambda = inputs$l1_lambda,
+                l1_lambda = inputs$l1_lambda, center_U = center_U, center_I = center_I,
                 maxiter = inputs$maxiter, niter = inputs$niter,
                 parallelize = inputs$parallelize, corr_pairs = inputs$corr_pairs,
                 max_cg_steps = inputs$max_cg_steps, finalize_chol = inputs$finalize_chol,
@@ -1182,7 +1283,7 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                          k=40L, lambda=1., alpha=1., use_cg=TRUE,
                          k_user=0L, k_item=0L, k_main=0L,
                          w_main=1., w_user=1., w_item=1.,
-                         l1_lambda=0.,
+                         l1_lambda=0., center_U=TRUE, center_I=TRUE,
                          niter=10L,
                          max_cg_steps=3L, finalize_chol=FALSE,
                          NA_as_zero_user=FALSE, NA_as_zero_item=FALSE,
@@ -1199,7 +1300,7 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                               alpha = alpha, downweight = FALSE,
                               k_user = k_user, k_item = k_item, k_main = k_main,
                               w_main = w_main, w_user = w_user, w_item = w_item,
-                              l1_lambda = l1_lambda,
+                              l1_lambda = l1_lambda, center_U = center_U, center_I,
                               niter = niter,
                               max_cg_steps = max_cg_steps, finalize_chol = finalize_chol,
                               NA_as_zero_user = NA_as_zero_user,
@@ -1218,7 +1319,7 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                          alpha = inputs$alpha, downweight = inputs$downweight,
                          k_user = inputs$k_user, k_item = inputs$k_item, k_main = inputs$k_main,
                          w_main = inputs$w_main, w_user = inputs$w_user, w_item = inputs$w_item,
-                         l1_lambda = inputs$l1_lambda,
+                         l1_lambda = inputs$l1_lambda, center_U = center_U, center_I = center_I,
                          niter = inputs$niter,
                          max_cg_steps = inputs$max_cg_steps, finalize_chol = inputs$finalize_chol,
                          NA_as_zero_user = inputs$NA_as_zero_user,
@@ -1242,9 +1343,10 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                  user_bias=TRUE, item_bias=TRUE, center=TRUE,
                  add_implicit_features=FALSE,
                  scale_lam=FALSE, scale_lam_sideinfo=FALSE,
+                 scale_bias_const=FALSE,
                  k_user=0L, k_item=0L, k_main=0L,
                  w_main=1., w_user=1., w_item=1., w_implicit=0.5,
-                 l1_lambda=0.,
+                 l1_lambda=0., center_U=TRUE, center_I=TRUE,
                  maxiter=800L, niter=10L, parallelize="separate", corr_pairs=4L,
                  max_cg_steps=3L, finalize_chol=TRUE,
                  NA_as_zero=FALSE, NA_as_zero_user=FALSE, NA_as_zero_item=FALSE,
@@ -1285,10 +1387,13 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
     this$info$nonneg           <-  nonneg
     this$info$include_all_X    <-  include_all_X
     this$info$center           <-  center
+    this$info$center_U         <-  center_U
+    this$info$center_I         <-  center_I
     this$info$nthreads         <-  nthreads
     this$info$add_implicit_features  <-  add_implicit_features
     this$info$scale_lam              <-  scale_lam
     this$info$scale_lam_sideinfo     <-  scale_lam_sideinfo
+    this$info$scale_bias_const       <-  scale_bias_const
     
     ### Allocate matrices
     m_max <- max(c(processed_X$m, processed_U$m, processed_U_bin$m))
@@ -1298,9 +1403,13 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
     
     if (user_bias) {
         this$matrices$user_bias <- numeric(m_max)
+        if (scale_lam && scale_bias_const)
+            this$matrices$scaling_biasA <- numeric(1L)
     }
     if (item_bias) {
         this$matrices$item_bias <- numeric(n_max)
+        if (scale_lam && scale_bias_const)
+            this$matrices$scaling_biasB <- numeric(1L)
     }
     if (add_implicit_features) {
         this$matrices$Ai <- matrix(0., ncol=m_max, nrow=k+k_main)
@@ -1308,11 +1417,13 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
     }
     if (processed_U$p) {
         this$matrices$C <- matrix(0., ncol=processed_U$p, nrow=k_user+k)
-        this$matrices$U_colmeans <- numeric(processed_U$p)
+        if (center_U)
+            this$matrices$U_colmeans <- numeric(processed_U$p)
     }
     if (processed_I$p) {
         this$matrices$D <- matrix(0., ncol=processed_I$p, nrow=k_item+k)
-        this$matrices$I_colmeans <- numeric(processed_I$p)
+        if (center_I)
+            this$matrices$I_colmeans <- numeric(processed_I$p)
     }
     if (processed_U_bin$p) {
         this$matrices$Cb <- matrix(0., ncol=processed_U_bin$p, nrow=k_user+k)
@@ -1342,6 +1453,8 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
         }
         if (NA_as_zero && (center || item_bias))
             this$precomputed$BtXbias <- numeric(k+k_main+user_bias)
+        if (NA_as_zero_user && center_U)
+            this$precomputed$CtUbias <- numeric(k_user+k)
     }
     
     ### Note: for some reason, R keeps pointers of old objects when calling 'get.empty.info',
@@ -1356,6 +1469,9 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
         nonneg_CD <- as.logical(c(nonneg_C, nonneg_D))
         k_main_k_user_k_item <- as.integer(c(k_main, k_user, k_item))
         w_main_w_user_w_item_w_implicit <- as.numeric(c(w_main, w_user, w_item, w_implicit))
+        NA_as_zero_X_NA_as_zero_U_NA_as_zero_I <- as.logical(c(NA_as_zero, NA_as_zero_user, NA_as_zero_item))
+        user_bias_item_bias_center <- c(user_bias, item_bias, center)
+        scale_lam_opts <- c(scale_lam, scale_lam_sideinfo, scale_bias_const)
         ret_code <- .Call("call_fit_collective_explicit_als",
                           this$matrices$user_bias, this$matrices$item_bias,
                           this$matrices$A, this$matrices$B,
@@ -1367,14 +1483,15 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                           processed_X$Xrow, processed_X$Xcol, processed_X$Xval,
                           processed_X$Xarr,
                           processed_X$Warr, processed_X$Wsp,
-                          user_bias, item_bias, center,
+                          user_bias_item_bias_center,
                           lambda, l1_lambda,
-                          scale_lam, scale_lam_sideinfo,
+                          scale_lam_opts,
+                          this$matrices$scaling_biasA, this$matrices$scaling_biasB,
                           processed_U$Uarr, processed_U$m, processed_U$p,
                           processed_I$Uarr, processed_I$m, processed_I$p,
                           processed_U$Urow, processed_U$Ucol, processed_U$Uval,
                           processed_I$Urow, processed_I$Ucol, processed_I$Uval,
-                          NA_as_zero, NA_as_zero_user, NA_as_zero_item,
+                          NA_as_zero_X_NA_as_zero_U_NA_as_zero_I,
                           k_main_k_user_k_item,
                           w_main_w_user_w_item_w_implicit,
                           niter, nthreads, verbose, handle_interrupt,
@@ -1390,7 +1507,8 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                           this$precomputed$BeTBeChol,
                           this$precomputed$BiTBi,
                           this$precomputed$TransCtCinvCt,
-                          this$precomputed$CtC)
+                          this$precomputed$CtC,
+                          this$precomputed$CtUbias)
     } else {
         ret_code <- .Call("call_fit_collective_explicit_lbfgs",
                           this$matrices$user_bias, this$matrices$item_bias,
@@ -1449,6 +1567,7 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                           niter=10L,
                           max_cg_steps=3L, finalize_chol=TRUE,
                           NA_as_zero_user=FALSE, NA_as_zero_item=FALSE,
+                          center_U=TRUE, center_I=TRUE,
                           nonneg=FALSE, nonneg_C=FALSE, nonneg_D=FALSE, max_cd_steps=100L,
                           apply_log_transf=FALSE,
                           precompute_for_predictions=TRUE,
@@ -1474,6 +1593,8 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
     this$info$k_main     <-  k_main
     this$info$lambda     <-  lambda
     this$info$l1_lambda  <-  l1_lambda
+    this$info$center_U   <-  center_U
+    this$info$center_I   <-  center_U
     this$info$alpha      <-  alpha
     this$info$user_mapping     <-  user_mapping
     this$info$item_mapping     <-  item_mapping
@@ -1494,11 +1615,13 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
     
     if (processed_U$p) {
         this$matrices$C <- matrix(0., ncol=processed_U$p, nrow=k_user+k)
-        this$matrices$U_colmeans <- numeric(processed_U$p)
+        if (center_U)
+            this$matrices$U_colmeans <- numeric(processed_U$p)
     }
     if (processed_I$p) {
         this$matrices$D <- matrix(0., ncol=processed_I$p, nrow=k_item+k)
-        this$matrices$I_colmeans <- numeric(processed_I$p)
+        if (center_I)
+            this$matrices$I_colmeans <- numeric(processed_I$p)
     }
 
     ### Allocate precomputed
@@ -1511,6 +1634,8 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                 this$precomputed$BeTBeChol <- matrix(0., nrow=k_user+k+k_main,
                                                          ncol=k_user+k+k_main)
         }
+        if (NA_as_zero_user && center_U)
+            this$precomputed$CtUbias <- numeric(k_user+k)
     }
     
     ### Note: for some reason, R keeps pointers of old objects when calling 'get.empty.info',
@@ -1539,7 +1664,8 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                       precompute_for_predictions,
                       this$precomputed$BtB,
                       this$precomputed$BeTBe,
-                      this$precomputed$BeTBeChol)
+                      this$precomputed$BeTBeChol,
+                      this$precomputed$CtUbias)
     
     this$info$w_main_multiplier <- w_main_multiplier
     
@@ -1552,12 +1678,18 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
 
 #' @export
 #' @rdname fit
-MostPopular <- function(X, weight=NULL, implicit=FALSE, apply_log_transf=FALSE, nonneg=FALSE,
-                        user_bias=ifelse(implicit, FALSE, TRUE), lambda=10., alpha=1., scale_lam=FALSE) {
-    inputs <- validate.inputs(model = "MostPopular", implicit = implicit,
+MostPopular <- function(X, weight=NULL, implicit=FALSE,
+                        center=TRUE, user_bias=ifelse(implicit, FALSE, TRUE),
+                        lambda=10., alpha=1., NA_as_zero=FALSE,
+                        apply_log_transf=FALSE, nonneg=FALSE,
+                        scale_lam=FALSE, scale_bias_const=FALSE) {
+    inputs <- validate.inputs(model = "MostPopular",
+                              implicit = implicit, center=center,
                               X = X, weight = weight,
+                              NA_as_zero = NA_as_zero,
                               apply_log_transf = apply_log_transf,
                               nonneg = nonneg, scale_lam = scale_lam,
+                              scale_bias_const = scale_bias_const,
                               user_bias = user_bias, lambda = lambda,
                               alpha = alpha, downweight = FALSE)
     if (inputs$downweight && !inputs$implicit)
@@ -1568,16 +1700,20 @@ MostPopular <- function(X, weight=NULL, implicit=FALSE, apply_log_transf=FALSE, 
                         user_bias = inputs$user_bias,
                         lambda = inputs$lambda, alpha = inputs$alpha,
                         scale_lam = inputs$scale_lam,
+                        scale_bias_const = inputs$scale_bias_const,
                         downweight = inputs$downweight,
                         apply_log_transf = inputs$apply_log_transf,
-                        nonneg = inputs$nonneg))
+                        nonneg = inputs$nonneg,
+                        center = inputs$center,
+                        NA_as_zero = inputs$NA_as_zero))
 }
 
 .MostPopular <- function(processed_X,
                          user_mapping, item_mapping,
                          implicit=FALSE, user_bias=FALSE,
-                         lambda=10., scale_lam=FALSE, alpha=1.,
-                         downweight=FALSE, apply_log_transf=FALSE, nonneg=FALSE) {
+                         lambda=10., scale_lam=FALSE, scale_bias_const=FALSE, alpha=1.,
+                         downweight=FALSE, apply_log_transf=FALSE, nonneg=FALSE,
+                         center=TRUE, NA_as_zero=FALSE) {
     
     this <- list(
         info = get.empty.info(),
@@ -1588,12 +1724,14 @@ MostPopular <- function(X, weight=NULL, implicit=FALSE, apply_log_transf=FALSE, 
     ### Fill in info
     this$info$lambda  <-  lambda
     this$info$alpha   <-  alpha
-    this$info$center  <-  !implicit
+    this$info$center  <-  center
     this$info$user_mapping  <-  user_mapping
     this$info$item_mapping  <-  item_mapping
     this$info$implicit          <-  implicit
     this$info$scale_lam         <-  scale_lam
+    this$info$scale_bias_const  <-  scale_bias_const
     this$info$nonneg            <-  nonneg
+    this$info$NA_as_zero        <-  NA_as_zero
     this$info$apply_log_transf  <-  apply_log_transf
     
     ### Allocate matrices
@@ -1610,7 +1748,7 @@ MostPopular <- function(X, weight=NULL, implicit=FALSE, apply_log_transf=FALSE, 
                       this$matrices$user_bias, this$matrices$item_bias,
                       glob_mean,
                       lambda,
-                      scale_lam,
+                      scale_lam, scale_bias_const,
                       alpha,
                       processed_X$m, processed_X$n,
                       processed_X$Xrow, processed_X$Xcol, processed_X$Xval,
@@ -1618,6 +1756,8 @@ MostPopular <- function(X, weight=NULL, implicit=FALSE, apply_log_transf=FALSE, 
                       processed_X$Warr, processed_X$Wsp,
                       implicit, downweight, apply_log_transf,
                       nonneg,
+                      center,
+                      NA_as_zero,
                       w_main_multiplier,
                       1L)
     
@@ -1709,7 +1849,7 @@ ContentBased <- function(X, U, I, weight=NULL,
     nupd <- integer(1L)
     nfev <- integer(1L)
     
-    
+
     ret_code <- .Call("call_fit_content_based_lbfgs",
                       this$matrices$user_bias, this$matrices$item_bias,
                       this$matrices$C, this$matrices$C_bias,
@@ -2091,11 +2231,13 @@ precompute.for.predictions <- function(model) {
                           model$matrices$C, p,
                           model$matrices$Bi, add_implicit_features,
                           model$matrices$item_bias, model$matrices$glob_mean, model$info$NA_as_zero,
+                          model$matrices$U_colmeans, model$info$NA_as_zero_user,
                           model$info$k, model$info$k_user, model$info$k_item, model$info$k_main,
                           user_bias,
                           model$info$nonneg,
                           model$info$lambda,
                           model$info$scale_lam, model$info$scale_lam_sideinfo,
+                          model$info$scale_bias_const, model$matrices$scaling_biasA,
                           model$info$w_main, model$info$w_user, model$info$w_implicit,
                           model$precomputed$B_plus_bias,
                           model$precomputed$BtB,
@@ -2104,7 +2246,8 @@ precompute.for.predictions <- function(model) {
                           model$precomputed$BeTBeChol,
                           model$precompted$BiTBi,
                           model$precomputed$TransCtCinvCt,
-                          model$precomputed$CtC)
+                          model$precomputed$CtC,
+                          model$precomputed$CtUbias)
     } else if ("CMF_implicit" %in% class(model)) {
         
         model$precomputed$BtB <- matrix(0., nrow=k+k_main, ncol=k+k_main)
@@ -2119,6 +2262,7 @@ precompute.for.predictions <- function(model) {
         ret_code <- .Call("call_precompute_collective_implicit",
                           model$matrices$B, n_max,
                           model$matrices$C, p,
+                          model$matrices$U_colmeans, model$info$NA_as_zero_user,
                           model$info$k, model$info$k_user, model$info$k_item, model$info$k_main,
                           model$info$lambda, model$info$w_main, model$info$w_user,
                           model$info$w_main_multiplier,
@@ -2126,7 +2270,8 @@ precompute.for.predictions <- function(model) {
                           TRUE,
                           model$precomputed$BtB,
                           model$precomputed$BeTBe,
-                          model$precomputed$BeTBeChol)
+                          model$precomputed$BeTBeChol,
+                          model$precomputed$CtUbias)
     } else {
         stop("Unexpected error.")
     }
