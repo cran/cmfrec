@@ -1527,6 +1527,9 @@ void factors_implicit_chol
         );
 }
 
+/* TODO: this could benefit from a non-zero starting point, could copy this:
+   https://github.com/rexyai/rsparse/blob/
+   08609e6f3638e7bccd08bf54a3d0f6109951226b/inst/include/nnls.hpp#L38 */
 void solve_nonneg
 (
     real_t *restrict BtB,
@@ -3036,6 +3039,9 @@ int_t initialize_biases
        implementations). Thus, both the ALS procedure and this function
        make updates over items first and users later. */
 
+    if (user_bias) set_to_zero(biasA, m_bias);
+    if (item_bias) set_to_zero(biasA, n_bias);
+
     /* Calculate item biases, but don't apply them to X */
     if (item_bias)
     {
@@ -3562,7 +3568,18 @@ int_t initialize_biases_onesided
                                     (double)wsumA[row]
                                         :
                                     (scale_lam? (double)n : 1.)));
-            biasA[row] = bmean;
+            biasA[row] = (Xcsr_p[row+1] > Xcsr_p[row])?
+                            bmean
+                              :
+                            (-glob_mean
+                                /
+                             ((double)n
+                                /
+                              ((double)n + lam * ((wsumA != NULL)?
+                                                    (double)wsumA[row]
+                                                        :
+                                                    (scale_lam?
+                                                        (double)n : 1.)))));
         }
     }
 
@@ -3599,7 +3616,18 @@ int_t initialize_biases_onesided
                                           + wsum)
                                             :
                                         1.)));
-            biasA[row] = bmean;
+            biasA[row] = (Xcsr_p[row+1] > Xcsr_p[row])?
+                            bmean
+                              :
+                            (-glob_mean
+                                /
+                             ((double)n
+                                /
+                              ((double)n + lam * ((wsumA != NULL)?
+                                                    (double)wsumA[row]
+                                                        :
+                                                    (scale_lam?
+                                                        (double)n : 1.)))));
         }
     }
 
@@ -3921,7 +3949,7 @@ int_t initialize_biases_twosided
         {
             double bmean = 0;
             if (iter > 0) {
-                for (int_t row = 0; row < n; row++)
+                for (int_t row = 0; row < m; row++)
                     bmean += (biasA[row] - bmean) / (double)(row+1);
             }
 
@@ -4266,6 +4294,10 @@ void predict_multiple
     int nthreads
 )
 {
+    int nthreads_restore = 1;
+    if (nnz > 1 && nthreads > 1)
+        set_blas_threads(1, &nthreads_restore);
+
     size_t lda = (size_t)k_user + (size_t)k + (size_t)k_main;
     size_t ldb = (size_t)k_item + (size_t)k + (size_t)k_main;
     A += k_user;
@@ -4290,6 +4322,9 @@ void predict_multiple
                      + ((biasA != NULL)? biasA[predA[ix]] : 0.)
                      + ((biasB != NULL)? biasB[predB[ix]] : 0.)
                      + glob_mean);
+
+    if (nnz > 1 && nthreads > 1)
+        set_blas_threads(nthreads_restore, (int*)NULL);
 }
 
 int_t cmp_int(const void *a, const void *b)
@@ -4381,6 +4416,8 @@ int_t topN
 
     int_t ix = 0;
 
+    int nthreads_restore = 1;
+
     int_t k_pred = k + k_main;
     int_t k_totB = k_item + k + k_main;
     size_t n_take = (include_ix != NULL)?
@@ -4422,6 +4459,9 @@ int_t topN
        an argsort with doubly-masked indices. */
     if (include_ix != NULL)
     {
+        if (nthreads > 1)
+            set_blas_threads(1, &nthreads_restore);
+
         buffer_scores = (real_t*)malloc((size_t)n_include*sizeof(real_t));
         buffer_mask = (int_t*)malloc((size_t)n_include*sizeof(int_t));
         if (buffer_scores == NULL || buffer_mask == NULL) goto throw_oom;
@@ -4436,6 +4476,9 @@ int_t topN
         }
         for (int_t ix = 0; ix < n_include; ix++)
             buffer_mask[ix] = ix;
+
+        if (nthreads > 1)
+            set_blas_threads(nthreads_restore, (int*)NULL);
     }
 
     /* Case 2: there is a large number of items to exclude.
@@ -4443,6 +4486,9 @@ int_t topN
        and then make a full or partial argsort. */
     else if (exclude_ix != NULL && (double)n_exclude > (double)n/20)
     {
+        if (nthreads > 1)
+            set_blas_threads(1, &nthreads_restore);
+        
         buffer_scores = (real_t*)malloc(n_take*sizeof(real_t));
         buffer_mask = (int_t*)malloc(n_take*sizeof(int_t));
         if (buffer_scores == NULL || buffer_mask == NULL) goto throw_oom;
@@ -4456,6 +4502,9 @@ int_t topN
                                 + ((biasB != NULL)? biasB[buffer_ix[ix]] : 0.);
         for (int_t ix = 0; ix < (int_t)n_take; ix++)
             buffer_mask[ix] = ix;
+
+        if (nthreads > 1)
+            set_blas_threads(nthreads_restore, (int*)NULL);
     }
 
     /* General case: make predictions for all the entries, then

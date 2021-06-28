@@ -159,6 +159,16 @@ typedef void (*sig_t_)(int);
     #define NAN_ NAN
 #endif
 
+#if defined(_FOR_R) || defined(_FOR_PYTHON) || !defined(_WIN32)
+    #define CMFREC_EXPORTABLE 
+#else
+    #ifdef CMFREC_COMPILE_TIME
+        #define CMFREC_EXPORTABLE __declspec(dllexport)
+    #else
+        #define CMFREC_EXPORTABLE __declspec(dllimport)
+    #endif 
+#endif
+
 #if !defined(USE_FLOAT)
     #define LBFGS_FLOAT 64
     #define real_t double
@@ -228,16 +238,16 @@ typedef void (*sig_t_)(int);
 #endif
 
 #if !defined(LAPACK_H) && !defined(_FOR_R)
-void tposv_(const char*, const int_t*, const int_t*, const real_t*, const int_t*, const real_t*, const int_t*, const int_t*);
-void tlacpy_(const char*, const int_t*, const int_t*, const real_t*, const int_t*, const real_t*, const int_t*);
-void tlarnv_(const int_t*, const int_t*, const int_t*, const real_t*);
-void tpotrf_(const char*, const int_t*, const real_t*, const int_t*, const int_t*);
-void tpotrs_(const char*, const int_t*, const int_t*, const real_t*, const int_t*, const real_t*, const int_t*, const int_t*);
+void tposv_(const char*, const int_t*, const int_t*, real_t*, const int_t*, real_t*, const int_t*, int_t*);
+void tlacpy_(const char*, const int_t*, const int_t*, const real_t*, const int_t*, real_t*, const int_t*);
+void tlarnv_(const int_t*, int_t*, const int_t*, real_t*);
+void tpotrf_(const char*, const int_t*, real_t*, const int_t*, int_t*);
+void tpotrs_(const char*, const int_t*, const int_t*, const real_t*, const int_t*, real_t*, const int_t*, int_t*);
 void tgelsd_(const int_t*, const int_t*, const int_t*,
-             const real_t*, const int_t*,
-             const real_t*, const int_t*,
-             const real_t*, const real_t*, const int_t*, const real_t*,
-             const int_t*, const int_t*, const int_t*);
+             real_t*, const int_t*,
+             real_t*, const int_t*,
+             real_t*, const real_t*, int_t*, real_t*,
+             const int_t*, int_t*, int_t*);
 #endif
 
 #ifndef CBLAS_H
@@ -246,6 +256,7 @@ typedef enum CBLAS_TRANSPOSE {CblasNoTrans=111, CblasTrans=112, CblasConjTrans=1
 typedef enum CBLAS_UPLO      {CblasUpper=121, CblasLower=122} CBLAS_UPLO;
 typedef CBLAS_ORDER CBLAS_LAYOUT;
 
+#if !(defined(_FOR_PYTHON) && !defined(USE_FINDBLAS))
 real_t  cblas_tdot(const int_t n, const real_t  *x, const int_t incx, const real_t  *y, const int_t incy);
 void cblas_tcopy(const int_t n, const real_t *x, const int_t incx, real_t *y, const int_t incy);
 void cblas_taxpy(const int_t n, const real_t alpha, const real_t *x, const int_t incx, real_t *y, const int_t incy);
@@ -262,10 +273,42 @@ void cblas_tsymv(const CBLAS_ORDER order, const CBLAS_UPLO Uplo, const int_t N, 
                  const int_t lda, const real_t *X, const int_t incX, const real_t beta, real_t *Y, const int_t incY);
 void cblas_tger(const CBLAS_ORDER order, const int_t m, const int_t n, const real_t alpha,
                 const real_t *x, const int_t incx, const real_t *y, const int_t incy, real_t *a, const int_t lda);
+#else
+real_t  cblas_tdot(const int_t n, const real_t  *x, const int_t incx, const real_t  *y, const int_t incy);
+void cblas_tcopy(const int_t n, const real_t *x, const int_t incx, real_t *y, const int_t incy);
+void cblas_taxpy(const int_t n, const real_t alpha, const real_t *x, const int_t incx, real_t *y, const int_t incy);
+void cblas_tscal(const int_t N, const real_t alpha, real_t *X, const int_t incX);
+void cblas_tsyr(const int order, const int Uplo, const int_t N, const real_t alpha, const real_t *X, const int_t incX, real_t *A, const int_t lda);
+void cblas_tsyrk(const int Order, const int Uplo, const int Trans,
+         const int_t N, const int_t K, const real_t alpha, const real_t *A, const int_t lda, const real_t beta, real_t *C, const int_t ldc);
+real_t  cblas_tnrm2 (const int_t N, const real_t  *X, const int_t incX);
+void cblas_tgemm(const int Order, const int TransA, const int TransB, const int_t M, const int_t N, const int_t K,
+         const real_t alpha, const real_t *A, const int_t lda, const real_t *B, const int_t ldb, const real_t beta, real_t *C, const int_t ldc);
+void cblas_tgemv(const int order,  const int trans,  const int_t m, const int_t n,
+         const real_t alpha, const real_t  *a, const int_t lda,  const real_t  *x, const int_t incx,  const real_t beta,  real_t  *y, const int_t incy);
+void cblas_tsymv(const int order, const int Uplo, const int_t N, const real_t alpha, const real_t *A,
+                 const int_t lda, const real_t *X, const int_t incX, const real_t beta, real_t *Y, const int_t incY);
+void cblas_tger(const int order, const int_t m, const int_t n, const real_t alpha,
+                const real_t *x, const int_t incx, const real_t *y, const int_t incy, real_t *a, const int_t lda);
+#endif
 void openblas_set_num_threads(int);
 int openblas_get_num_threads(void);
 #endif
 
+#if defined(_FOR_R) && defined(WRAPPED_GELSD) && !defined(USE_FLOAT)
+typedef struct Args_to_GELSD {
+    int *m; int *n; int *nrhs;
+    real_t *A; int *lda; real_t *B; int *ldb;
+    real_t *S; real_t *rcond; int *rank;
+    real_t *work; int *lwork; int *iwork;
+    int *info;
+} Args_to_GELSD;
+typedef struct PointersToFree {
+    void **pointers;
+    size_t n_pointers;
+} PointersToFree;
+extern bool GELSD_free_inputs;
+#endif
 
 #include "lbfgs.h"
 
@@ -460,6 +503,10 @@ void set_blas_threads(int nthreads_set, int *nthreads_curr);
 #elif defined(_FOR_PYTHON)
     extern void py_set_threads(int);
     extern int py_get_threads(void);
+#endif
+#if defined(_FOR_R) && defined(WRAPPED_GELSD) && !defined(USE_FLOAT)
+SEXP wrapper_GELSD(void *data);
+void clean_after_GELSD(void *cdata, Rboolean jump);
 #endif
 
 /* common.c */
@@ -804,7 +851,7 @@ int_t topN
     int_t *restrict outp_ix, real_t *restrict outp_score,
     int_t n_top, int_t n, int nthreads
 );
-int_t fit_most_popular
+CMFREC_EXPORTABLE int_t fit_most_popular
 (
     real_t *restrict biasA, real_t *restrict biasB,
     real_t *restrict glob_mean,
@@ -836,7 +883,7 @@ int_t fit_most_popular_internal
     real_t *restrict w_main_multiplier,
     int nthreads
 );
-int_t topN_old_most_popular
+CMFREC_EXPORTABLE int_t topN_old_most_popular
 (
     bool user_bias,
     real_t a_bias,
@@ -848,7 +895,7 @@ int_t topN_old_most_popular
     int_t *restrict outp_ix, real_t *restrict outp_score,
     int_t n_top, int_t n
 );
-int_t predict_X_old_most_popular
+CMFREC_EXPORTABLE int_t predict_X_old_most_popular
 (
     int_t row[], int_t col[], real_t *restrict predicted, size_t n_predict,
     real_t *restrict biasA, real_t *restrict biasB,
@@ -1373,7 +1420,7 @@ int_t fit_collective_explicit_lbfgs_internal
     int_t *restrict niter, int_t *restrict nfev,
     real_t *restrict B_plus_bias
 );
-int_t fit_collective_explicit_lbfgs
+CMFREC_EXPORTABLE int_t fit_collective_explicit_lbfgs
 (
     real_t *restrict biasA, real_t *restrict biasB,
     real_t *restrict A, real_t *restrict B,
@@ -1409,7 +1456,7 @@ int_t fit_collective_explicit_lbfgs
     real_t *restrict precomputedTransCtCinvCt,
     real_t *restrict precomputedCtCw
 );
-int_t fit_collective_explicit_als
+CMFREC_EXPORTABLE int_t fit_collective_explicit_als
 (
     real_t *restrict biasA, real_t *restrict biasB,
     real_t *restrict A, real_t *restrict B,
@@ -1450,7 +1497,7 @@ int_t fit_collective_explicit_als
     real_t *restrict precomputedCtCw,
     real_t *restrict precomputedCtUbias
 );
-int_t fit_collective_implicit_als
+CMFREC_EXPORTABLE int_t fit_collective_implicit_als
 (
     real_t *restrict A, real_t *restrict B,
     real_t *restrict C, real_t *restrict D,
@@ -1478,7 +1525,7 @@ int_t fit_collective_implicit_als
     real_t *restrict precomputedBeTBeChol,
     real_t *restrict precomputedCtUbias
 );
-int_t precompute_collective_explicit
+CMFREC_EXPORTABLE int_t precompute_collective_explicit
 (
     real_t *restrict B, int_t n, int_t n_max, bool include_all_X,
     real_t *restrict C, int_t p,
@@ -1502,7 +1549,7 @@ int_t precompute_collective_explicit
     real_t *restrict CtCw,
     real_t *restrict CtUbias
 );
-int_t precompute_collective_implicit
+CMFREC_EXPORTABLE int_t precompute_collective_implicit
 (
     real_t *restrict B, int_t n,
     real_t *restrict C, int_t p,
@@ -1516,7 +1563,7 @@ int_t precompute_collective_implicit
     real_t *restrict BeTBeChol,
     real_t *restrict CtUbias
 );
-int_t factors_collective_explicit_single
+CMFREC_EXPORTABLE int_t factors_collective_explicit_single
 (
     real_t *restrict a_vec, real_t *restrict a_bias,
     real_t *restrict u_vec, int_t p,
@@ -1549,7 +1596,7 @@ int_t factors_collective_explicit_single
     real_t *restrict CtUbias,
     real_t *restrict B_plus_bias
 );
-int_t factors_collective_implicit_single
+CMFREC_EXPORTABLE int_t factors_collective_implicit_single
 (
     real_t *restrict a_vec,
     real_t *restrict u_vec, int_t p,
@@ -1568,7 +1615,7 @@ int_t factors_collective_implicit_single
     real_t *restrict BeTBeChol,
     real_t *restrict CtUbias
 );
-int_t factors_collective_explicit_multiple
+CMFREC_EXPORTABLE int_t factors_collective_explicit_multiple
 (
     real_t *restrict A, real_t *restrict biasA, int_t m,
     real_t *restrict U, int_t m_u, int_t p,
@@ -1604,7 +1651,7 @@ int_t factors_collective_explicit_multiple
     real_t *restrict B_plus_bias,
     int nthreads
 );
-int_t factors_collective_implicit_multiple
+CMFREC_EXPORTABLE int_t factors_collective_implicit_multiple
 (
     real_t *restrict A, int_t m,
     real_t *restrict U, int_t m_u, int_t p,
@@ -1627,7 +1674,7 @@ int_t factors_collective_implicit_multiple
     real_t *restrict CtUbias,
     int nthreads
 );
-int_t impute_X_collective_explicit
+CMFREC_EXPORTABLE int_t impute_X_collective_explicit
 (
     int_t m, bool user_bias,
     real_t *restrict U, int_t m_u, int_t p,
@@ -1660,7 +1707,7 @@ int_t impute_X_collective_explicit
     real_t *restrict B_plus_bias,
     int nthreads
 );
-int_t topN_old_collective_explicit
+CMFREC_EXPORTABLE int_t topN_old_collective_explicit
 (
     real_t *restrict a_vec, real_t a_bias,
     real_t *restrict A, real_t *restrict biasA, int_t row_index,
@@ -1673,7 +1720,7 @@ int_t topN_old_collective_explicit
     int_t *restrict outp_ix, real_t *restrict outp_score,
     int_t n_top, int_t n, int_t n_max, bool include_all_X, int nthreads
 );
-int_t topN_old_collective_implicit
+CMFREC_EXPORTABLE int_t topN_old_collective_implicit
 (
     real_t *restrict a_vec,
     real_t *restrict A, int_t row_index,
@@ -1684,7 +1731,7 @@ int_t topN_old_collective_implicit
     int_t *restrict outp_ix, real_t *restrict outp_score,
     int_t n_top, int_t n, int nthreads
 );
-int_t topN_new_collective_explicit
+CMFREC_EXPORTABLE int_t topN_new_collective_explicit
 (
     /* inputs for the factors */
     bool user_bias,
@@ -1723,7 +1770,7 @@ int_t topN_new_collective_explicit
     int_t *restrict outp_ix, real_t *restrict outp_score,
     int_t n_top, int nthreads
 );
-int_t topN_new_collective_implicit
+CMFREC_EXPORTABLE int_t topN_new_collective_implicit
 (
     /* inputs for the factors */
     int_t n,
@@ -1748,7 +1795,7 @@ int_t topN_new_collective_implicit
     int_t *restrict outp_ix, real_t *restrict outp_score,
     int_t n_top, int nthreads
 );
-int_t predict_X_old_collective_explicit
+CMFREC_EXPORTABLE int_t predict_X_old_collective_explicit
 (
     int_t row[], int_t col[], real_t *restrict predicted, size_t n_predict,
     real_t *restrict A, real_t *restrict biasA,
@@ -1758,7 +1805,7 @@ int_t predict_X_old_collective_explicit
     int_t m, int_t n_max,
     int nthreads
 );
-int_t predict_X_old_collective_implicit
+CMFREC_EXPORTABLE int_t predict_X_old_collective_implicit
 (
     int_t row[], int_t col[], real_t *restrict predicted, size_t n_predict,
     real_t *restrict A,
@@ -1767,7 +1814,7 @@ int_t predict_X_old_collective_implicit
     int_t m, int_t n,
     int nthreads
 );
-int_t predict_X_new_collective_explicit
+CMFREC_EXPORTABLE int_t predict_X_new_collective_explicit
 (
     /* inputs for predictions */
     int_t m_new,
@@ -1807,7 +1854,7 @@ int_t predict_X_new_collective_explicit
     real_t *restrict CtUbias,
     real_t *restrict B_plus_bias
 );
-int_t predict_X_new_collective_implicit
+CMFREC_EXPORTABLE int_t predict_X_new_collective_implicit
 (
     /* inputs for predictions */
     int_t m_new,
@@ -1932,7 +1979,7 @@ int_t precompute_offsets_both
     real_t *restrict BtB,
     real_t *restrict TransBtBinvBt
 );
-int_t precompute_offsets_explicit
+CMFREC_EXPORTABLE int_t precompute_offsets_explicit
 (
     real_t *restrict A, int_t m,
     real_t *restrict B, int_t n,
@@ -1955,7 +2002,7 @@ int_t precompute_offsets_explicit
     real_t *restrict BtB,
     real_t *restrict TransBtBinvBt
 );
-int_t precompute_offsets_implicit
+CMFREC_EXPORTABLE int_t precompute_offsets_implicit
 (
     real_t *restrict A, int_t m,
     real_t *restrict B, int_t n,
@@ -2030,7 +2077,7 @@ int_t fit_offsets_explicit_lbfgs_internal
     real_t *restrict Am, real_t *restrict Bm,
     real_t *restrict Bm_plus_bias
 );
-int_t fit_offsets_explicit_lbfgs
+CMFREC_EXPORTABLE int_t fit_offsets_explicit_lbfgs
 (
     real_t *restrict biasA, real_t *restrict biasB,
     real_t *restrict A, real_t *restrict B,
@@ -2089,7 +2136,7 @@ int_t fit_offsets_als
     real_t *restrict precomputedBtB,
     real_t *restrict precomputedTransBtBinvBt
 );
-int_t fit_offsets_explicit_als
+CMFREC_EXPORTABLE int_t fit_offsets_explicit_als
 (
     real_t *restrict biasA, real_t *restrict biasB,
     real_t *restrict A, real_t *restrict B,
@@ -2116,7 +2163,7 @@ int_t fit_offsets_explicit_als
     real_t *restrict precomputedBtB,
     real_t *restrict precomputedTransBtBinvBt
 );
-int_t fit_offsets_implicit_als
+CMFREC_EXPORTABLE int_t fit_offsets_implicit_als
 (
     real_t *restrict A, real_t *restrict B,
     real_t *restrict C, real_t *restrict C_bias,
@@ -2147,7 +2194,7 @@ int_t matrix_content_based
     real_t *restrict C, real_t *restrict C_bias,
     int nthreads
 );
-int_t factors_offsets_explicit_single
+CMFREC_EXPORTABLE int_t factors_offsets_explicit_single
 (
     real_t *restrict a_vec, real_t *restrict a_bias, real_t *restrict output_a,
     real_t *restrict u_vec, int_t p,
@@ -2166,7 +2213,7 @@ int_t factors_offsets_explicit_single
     real_t *restrict precomputedBtB,
     real_t *restrict Bm_plus_bias
 );
-int_t factors_offsets_implicit_single
+CMFREC_EXPORTABLE int_t factors_offsets_implicit_single
 (
     real_t *restrict a_vec,
     real_t *restrict u_vec, int_t p,
@@ -2180,7 +2227,7 @@ int_t factors_offsets_implicit_single
     real_t *restrict precomputedBtB,
     real_t *restrict output_a
 );
-int_t factors_offsets_explicit_multiple
+CMFREC_EXPORTABLE int_t factors_offsets_explicit_multiple
 (
     real_t *restrict Am, real_t *restrict biasA,
     real_t *restrict A, int_t m,
@@ -2202,7 +2249,7 @@ int_t factors_offsets_explicit_multiple
     real_t *restrict Bm_plus_bias,
     int nthreads
 );
-int_t factors_offsets_implicit_multiple
+CMFREC_EXPORTABLE int_t factors_offsets_implicit_multiple
 (
     real_t *restrict Am, int_t m,
     real_t *restrict A,
@@ -2219,7 +2266,7 @@ int_t factors_offsets_implicit_multiple
     real_t *restrict precomputedBtB,
     int nthreads
 );
-int_t topN_old_offsets_explicit
+CMFREC_EXPORTABLE int_t topN_old_offsets_explicit
 (
     real_t *restrict a_vec, real_t a_bias,
     real_t *restrict Am, real_t *restrict biasA, int_t row_index,
@@ -2232,7 +2279,7 @@ int_t topN_old_offsets_explicit
     int_t *restrict outp_ix, real_t *restrict outp_score,
     int_t n_top, int_t n, int nthreads
 );
-int_t topN_old_offsets_implicit
+CMFREC_EXPORTABLE int_t topN_old_offsets_implicit
 (
     real_t *restrict a_vec,
     real_t *restrict Am, int_t row_index,
@@ -2243,7 +2290,7 @@ int_t topN_old_offsets_implicit
     int_t *restrict outp_ix, real_t *restrict outp_score,
     int_t n_top, int_t n, int nthreads
 );
-int_t topN_new_offsets_explicit
+CMFREC_EXPORTABLE int_t topN_new_offsets_explicit
 (
     /* inputs for factors */
     bool user_bias, int_t n,
@@ -2268,7 +2315,7 @@ int_t topN_new_offsets_explicit
     int_t *restrict outp_ix, real_t *restrict outp_score,
     int_t n_top, int nthreads
 );
-int_t topN_new_offsets_implicit
+CMFREC_EXPORTABLE int_t topN_new_offsets_implicit
 (
     /* inputs for factors */
     real_t *restrict u_vec, int_t p,
@@ -2286,7 +2333,7 @@ int_t topN_new_offsets_implicit
     int_t *restrict outp_ix, real_t *restrict outp_score,
     int_t n_top, int_t n, int nthreads
 );
-int_t predict_X_old_offsets_explicit
+CMFREC_EXPORTABLE int_t predict_X_old_offsets_explicit
 (
     int_t row[], int_t col[], real_t *restrict predicted, size_t n_predict,
     real_t *restrict Am, real_t *restrict biasA,
@@ -2296,7 +2343,7 @@ int_t predict_X_old_offsets_explicit
     int_t m, int_t n,
     int nthreads
 );
-int_t predict_X_old_offsets_implicit
+CMFREC_EXPORTABLE int_t predict_X_old_offsets_implicit
 (
     int_t row[], int_t col[], real_t *restrict predicted, size_t n_predict,
     real_t *restrict Am,
@@ -2305,7 +2352,7 @@ int_t predict_X_old_offsets_implicit
     int_t m, int_t n,
     int nthreads
 );
-int_t predict_X_new_offsets_explicit
+CMFREC_EXPORTABLE int_t predict_X_new_offsets_explicit
 (
     /* inputs for predictions */
     int_t m_new, bool user_bias,
@@ -2329,7 +2376,7 @@ int_t predict_X_new_offsets_explicit
     real_t *restrict precomputedBtB,
     real_t *restrict Bm_plus_bias
 );
-int_t predict_X_new_offsets_implicit
+CMFREC_EXPORTABLE int_t predict_X_new_offsets_implicit
 (
     /* inputs for predictions */
     int_t m_new,
@@ -2349,7 +2396,7 @@ int_t predict_X_new_offsets_implicit
     bool apply_log_transf,
     real_t *restrict precomputedBtB
 );
-int_t fit_content_based_lbfgs
+CMFREC_EXPORTABLE int_t fit_content_based_lbfgs
 (
     real_t *restrict biasA, real_t *restrict biasB,
     real_t *restrict C, real_t *restrict C_bias,
@@ -2373,14 +2420,14 @@ int_t fit_content_based_lbfgs
     int_t *restrict niter, int_t *restrict nfev,
     real_t *restrict Am, real_t *restrict Bm
 );
-int_t factors_content_based_single
+CMFREC_EXPORTABLE int_t factors_content_based_single
 (
     real_t *restrict a_vec, int_t k,
     real_t *restrict u_vec, int_t p,
     real_t *restrict u_vec_sp, int_t u_vec_ixB[], size_t nnz_u_vec,
     real_t *restrict C, real_t *restrict C_bias
 );
-int_t factors_content_based_mutliple
+CMFREC_EXPORTABLE int_t factors_content_based_mutliple
 (
     real_t *restrict Am, int_t m_new, int_t k,
     real_t *restrict C, real_t *restrict C_bias,
@@ -2389,7 +2436,7 @@ int_t factors_content_based_mutliple
     size_t U_csr_p[], int_t U_csr_i[], real_t *restrict U_csr,
     int nthreads
 );
-int_t topN_old_content_based
+CMFREC_EXPORTABLE int_t topN_old_content_based
 (
     real_t *restrict a_vec, real_t a_bias,
     real_t *restrict Am, real_t *restrict biasA, int_t row_index,
@@ -2402,7 +2449,7 @@ int_t topN_old_content_based
     int_t *restrict outp_ix, real_t *restrict outp_score,
     int_t n_top, int_t n, int nthreads
 );
-int_t topN_new_content_based
+CMFREC_EXPORTABLE int_t topN_new_content_based
 (
     /* inputs for the factors */
     int_t k, int_t n_new,
@@ -2418,7 +2465,7 @@ int_t topN_new_content_based
     int_t *restrict outp_ix, real_t *restrict outp_score,
     int_t n_top, int nthreads
 );
-int_t predict_X_old_content_based
+CMFREC_EXPORTABLE int_t predict_X_old_content_based
 (
     real_t *restrict predicted, size_t n_predict,
     int_t m_new, int_t k,
@@ -2433,7 +2480,7 @@ int_t predict_X_old_content_based
     real_t glob_mean,
     int nthreads
 );
-int_t predict_X_new_content_based
+CMFREC_EXPORTABLE int_t predict_X_new_content_based
 (
     real_t *restrict predicted, size_t n_predict,
     int_t m_new, int_t n_new, int_t k,
