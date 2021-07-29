@@ -84,6 +84,8 @@ extern "C" {
 #include <stdbool.h>
 #include <math.h>
 #include <float.h>
+#include <stdint.h>
+#include <inttypes.h>
 #ifndef _FOR_R
     #include <stdio.h>
 #endif
@@ -159,6 +161,10 @@ typedef void (*sig_t_)(int);
     #define NAN_ NAN
 #endif
 
+#ifndef M_PI
+    #define M_PI 3.14159265358979323846
+#endif
+
 #if defined(_FOR_R) || defined(_FOR_PYTHON) || !defined(_WIN32)
     #define CMFREC_EXPORTABLE 
 #else
@@ -177,6 +183,7 @@ typedef void (*sig_t_)(int);
     #define fabs_t fabs
     #define fmax_t fmax
     #define sqrt_t sqrt
+    #define fma_t fma
     #define EPSILON_T DBL_EPSILON
     #define HUGE_VAL_T HUGE_VAL
     #define cblas_tdot cblas_ddot
@@ -192,7 +199,6 @@ typedef void (*sig_t_)(int);
     #define cblas_tsymv cblas_dsymv
     #define tlacpy_ dlacpy_
     #define tposv_ dposv_
-    #define tlarnv_ dlarnv_
     #define tpotrf_ dpotrf_
     #define tpotrs_ dpotrs_
     #define tgelsd_ dgelsd_
@@ -204,6 +210,7 @@ typedef void (*sig_t_)(int);
     #define fmax_t fmaxf
     #define fabs_t fabsf
     #define sqrt_t sqrtf
+    #define fma_t fmaf
     #define EPSILON_T FLT_EPSILON
     #define HUGE_VAL_T HUGE_VALF
     #define cblas_tdot cblas_sdot
@@ -219,7 +226,6 @@ typedef void (*sig_t_)(int);
     #define cblas_tsymv cblas_ssymv
     #define tlacpy_ slacpy_
     #define tposv_ sposv_
-    #define tlarnv_ slarnv_
     #define tpotrf_ spotrf_
     #define tpotrs_ spotrs_
     #define tgelsd_ sgelsd_
@@ -233,14 +239,20 @@ typedef void (*sig_t_)(int);
     #define int_t int
 #else
     #define ILP64 
-    #include <inttypes.h>
     #define int_t int64_t
+#endif
+
+#if (SIZE_MAX >= UINT64_MAX)
+    #define rng_state_t uint64_t
+    #define USE_XOSHIRO256
+#else
+    #define rng_state_t uint32_t
+    #define USE_XOSHIRO128
 #endif
 
 #if !defined(LAPACK_H) && !defined(_FOR_R)
 void tposv_(const char*, const int_t*, const int_t*, real_t*, const int_t*, real_t*, const int_t*, int_t*);
 void tlacpy_(const char*, const int_t*, const int_t*, const real_t*, const int_t*, real_t*, const int_t*);
-void tlarnv_(const int_t*, int_t*, const int_t*, real_t*);
 void tpotrf_(const char*, const int_t*, real_t*, const int_t*, int_t*);
 void tpotrs_(const char*, const int_t*, const int_t*, const real_t*, const int_t*, real_t*, const int_t*, int_t*);
 void tgelsd_(const int_t*, const int_t*, const int_t*,
@@ -313,14 +325,18 @@ extern bool GELSD_free_inputs;
 #include "lbfgs.h"
 
 #define square(x) ( (x) * (x) )
-#define cap_to_4(x) (((x) > 4)? 4 : (x))
 #define max2(a, b) ((a) >= ((b))? (a) : (b))
 #define min2(a, b) ((a) <= ((b))? (a) : (b))
+#define cap_to_4(x) (((x) > 4)? 4 : (min2(x, 1)))
 #define set_to_zero(arr, n) memset((arr), 0, (size_t)(n)*sizeof(real_t))
 #define copy_arr(from, to, n) memcpy((to), (from), (size_t)(n)*sizeof(real_t))
 
 
 /* helpers.c */
+typedef struct ArraysToFill {
+    real_t *A; size_t sizeA;
+    real_t *B; size_t sizeB;
+} ArraysToFill;
 void set_to_zero_(real_t *arr, const size_t n, int nthreads);
 void copy_arr_(real_t *restrict src, real_t *restrict dest, size_t n, int nthreads);
 int_t count_NAs(real_t arr[], size_t n, int nthreads);
@@ -328,13 +344,15 @@ void count_NAs_by_row
 (
     real_t *restrict arr, int_t m, int_t n,
     int_t *restrict cnt_NA, int nthreads,
-    bool *restrict full_dense, bool *restrict near_dense
+    bool *restrict full_dense, bool *restrict near_dense,
+    bool *restrict some_full
 );
 void count_NAs_by_col
 (
     real_t *restrict arr, int_t m, int_t n,
     int_t *restrict cnt_NA,
-    bool *restrict full_dense, bool *restrict near_dense
+    bool *restrict full_dense, bool *restrict near_dense,
+    bool *restrict some_full
 );
 void sum_by_rows(real_t *restrict A, real_t *restrict outp, int_t m, int_t n, int nthreads);
 void sum_by_cols(real_t *restrict A, real_t *restrict outp, int_t m, int_t n, size_t lda, int nthreads);
@@ -358,9 +376,15 @@ void mult_elemwise(real_t *restrict inout, real_t *restrict other, size_t n, int
 real_t sum_squares(real_t *restrict arr, size_t n, int nthreads);
 void taxpy_large(real_t *restrict A, real_t x, real_t *restrict Y, size_t n, int nthreads);
 void tscal_large(real_t *restrict arr, real_t alpha, size_t n, int nthreads);
-int_t rnorm(real_t *restrict arr, size_t n, int_t seed, int nthreads);
-void rnorm_preserve_seed(real_t *restrict arr, size_t n, int_t seed_arr[4]);
-void process_seed_for_larnv(int_t seed_arr[4]);
+void rnorm_xoshiro(real_t *seq, const size_t n, rng_state_t state[4]);
+void seed_state(int_t seed, rng_state_t state[4]);
+void fill_rnorm_buckets
+(
+    const size_t n_buckets, real_t *arr, const size_t n,
+    real_t **ptr_bucket, size_t *sz_bucket, const size_t BUCKET_SIZE
+);
+void rnorm_singlethread(ArraysToFill arrays, rng_state_t state[4]);
+int_t rnorm_parallel(ArraysToFill arrays, int_t seed, int nthreads);
 void reduce_mat_sum(real_t *restrict outp, size_t lda, real_t *restrict inp,
                     int_t m, int_t n, int nthreads);
 void exp_neg_x(real_t *restrict arr, size_t n, int nthreads);
@@ -508,6 +532,7 @@ void set_blas_threads(int nthreads_set, int *nthreads_curr);
 SEXP wrapper_GELSD(void *data);
 void clean_after_GELSD(void *cdata, Rboolean jump);
 #endif
+bool get_has_openmp(void);
 
 /* common.c */
 real_t fun_grad_cannonical_form
@@ -699,7 +724,7 @@ real_t wrapper_fun_grad_Bdense
 );
 size_t buffer_size_optimizeA
 (
-    size_t n, bool full_dense, bool near_dense, bool do_B,
+    size_t n, bool full_dense, bool near_dense, bool some_full, bool do_B,
     bool has_dense, bool has_weights, bool NA_as_zero,
     bool nonneg, bool has_l1,
     size_t k, size_t nthreads,
@@ -720,13 +745,13 @@ void optimizeA
     real_t *restrict B, int_t ldb,
     int_t m, int_t n, int_t k,
     size_t Xcsr_p[], int_t Xcsr_i[], real_t *restrict Xcsr,
-    real_t *restrict Xfull, int_t ldX, bool full_dense, bool near_dense,
+    real_t *restrict Xfull, int_t ldX,
+    bool full_dense, bool near_dense, bool some_full,
     int_t cnt_NA[], real_t *restrict weight, bool NA_as_zero,
     real_t lam, real_t lam_last,
     real_t l1_lam, real_t l1_lam_last,
     bool scale_lam, bool scale_bias_const, real_t *restrict wsumA,
-    bool do_B, bool is_first_iter,
-    int nthreads,
+    bool do_B, int nthreads,
     bool use_cg, int_t max_cg_steps,
     bool nonneg, int_t max_cd_steps,
     real_t *restrict bias_restore,
@@ -744,21 +769,23 @@ void optimizeA_implicit
     size_t Xcsr_p[], int_t Xcsr_i[], real_t *restrict Xcsr,
     real_t lam, real_t l1_lam,
     int nthreads,
-    bool use_cg, int_t max_cg_steps, bool force_set_to_zero,
+    bool use_cg, int_t max_cg_steps,
     bool nonneg, int_t max_cd_steps,
     real_t *restrict precomputedBtB, /* <- will be calculated if not passed */
     real_t *restrict buffer_real_t
 );
-void calc_mean_and_center
+int_t calc_mean_and_center
 (
-    int_t ixA[], int_t ixB[], real_t *restrict X, size_t nnz,
-    real_t *restrict Xfull, real_t *restrict Xtrans,
+    int_t ixA[], int_t ixB[], real_t *restrict *X_, size_t nnz,
+    real_t *restrict *Xfull_, real_t *restrict Xtrans,
     int_t m, int_t n,
     size_t Xcsr_p[], int_t Xcsr_i[], real_t *restrict Xcsr,
     size_t Xcsc_p[], int_t Xcsc_i[], real_t *restrict Xcsc,
     real_t *restrict weight,
     bool NA_as_zero, bool nonneg, bool center, int nthreads,
-    real_t *restrict glob_mean
+    real_t *restrict glob_mean,
+    bool *modified_X, bool *modified_Xfull,
+    bool allow_overwrite_X
 );
 int_t initialize_biases
 (
@@ -770,14 +797,16 @@ int_t initialize_biases
     real_t *restrict scaling_biasA, real_t *restrict scaling_biasB,
     int_t m, int_t n,
     int_t m_bias, int_t n_bias,
-    int_t ixA[], int_t ixB[], real_t *restrict X, size_t nnz,
-    real_t *restrict Xfull, real_t *restrict Xtrans,
+    int_t ixA[], int_t ixB[], real_t *restrict *X_, size_t nnz,
+    real_t *restrict *Xfull_, real_t *restrict Xtrans,
     size_t Xcsr_p[], int_t Xcsr_i[], real_t *restrict Xcsr,
     size_t Xcsc_p[], int_t Xcsc_i[], real_t *restrict Xcsc,
     real_t *restrict weight, real_t *restrict Wtrans,
     real_t *restrict weightR, real_t *restrict weightC,
     bool nonneg,
-    int nthreads
+    int nthreads,
+    bool *modified_X, bool *modified_Xfull,
+    bool allow_overwrite_X
 );
 int_t initialize_biases_onesided
 (
@@ -808,11 +837,11 @@ int_t initialize_biases_twosided
 int_t center_by_cols
 (
     real_t *restrict col_means,
-    real_t *restrict Xfull, int_t m, int_t n,
-    int_t ixA[], int_t ixB[], real_t *restrict X, size_t nnz,
+    real_t *restrict *Xfull_, int_t m, int_t n,
+    int_t ixA[], int_t ixB[], real_t *restrict *X_, size_t nnz,
     size_t Xcsr_p[], int_t Xcsr_i[], real_t *restrict Xcsr,
     size_t Xcsc_p[], int_t Xcsc_i[], real_t *restrict Xcsc,
-    int nthreads
+    int nthreads, bool *modified_X, bool *modified_Xfull
 );
 bool check_sparse_indices
 (
@@ -875,13 +904,15 @@ int_t fit_most_popular_internal
     bool scale_lam, bool scale_bias_const,
     real_t alpha,
     int_t m, int_t n,
-    int_t ixA[], int_t ixB[], real_t *restrict X, size_t nnz,
-    real_t *restrict Xfull,
+    int_t ixA[], int_t ixB[], real_t *restrict *X_, size_t nnz,
+    real_t *restrict *Xfull_,
     real_t *restrict weight,
     bool implicit, bool adjust_weight, bool apply_log_transf,
     bool nonneg,
     real_t *restrict w_main_multiplier,
-    int nthreads
+    int nthreads,
+    bool *free_X, bool *free_Xfull,
+    bool allow_overwrite_X
 );
 CMFREC_EXPORTABLE int_t topN_old_most_popular
 (
@@ -1105,7 +1136,7 @@ void optimizeA_collective_implicit
     bool full_dense_u, bool near_dense_u, bool NA_as_zero_U,
     real_t lam, real_t l1_lam, real_t w_user,
     int nthreads,
-    bool use_cg, int_t max_cg_steps, bool is_first_iter,
+    bool use_cg, int_t max_cg_steps,
     bool nonneg, int_t max_cd_steps,
     real_t *restrict precomputedBtB, /* will not have lambda with CG */
     real_t *restrict precomputedBeTBe,
@@ -1243,10 +1274,10 @@ size_t buffer_size_optimizeA_collective
 (
     size_t m, size_t m_u, size_t n, size_t p,
     size_t k, size_t k_main, size_t k_user,
-    bool full_dense, bool near_dense, bool do_B,
+    bool full_dense, bool near_dense, bool some_full, bool do_B,
     bool has_dense, bool has_sparse, bool has_weights, bool NA_as_zero_X,
     bool has_dense_U, bool has_sparse_U,
-    bool full_dense_u, bool near_dense_u, bool NA_as_zero_U,
+    bool full_dense_u, bool near_dense_u, bool some_full_u, bool NA_as_zero_U,
     bool add_implicit_features, size_t k_main_i,
     size_t nthreads,
     bool use_cg, bool finalize_chol,
@@ -1280,20 +1311,21 @@ void optimizeA_collective
     int_t m, int_t m_u, int_t n, int_t p,
     int_t k, int_t k_main, int_t k_user, int_t k_item,
     size_t Xcsr_p[], int_t Xcsr_i[], real_t *restrict Xcsr,
-    real_t *restrict Xfull, bool full_dense, bool near_dense, int_t ldX,
+    real_t *restrict Xfull, int_t ldX,
+    bool full_dense, bool near_dense, bool some_full,
     int_t cnt_NA_x[], real_t *restrict weight, bool NA_as_zero_X,
     real_t *restrict Xones, int_t k_main_i, int_t ldXones,
     bool add_implicit_features,
     size_t U_csr_p[], int_t U_csr_i[], real_t *restrict U_csr,
     real_t *restrict U, int_t cnt_NA_u[], real_t *restrict U_colmeans,
-    bool full_dense_u, bool near_dense_u, bool NA_as_zero_U,
+    bool full_dense_u, bool near_dense_u, bool some_full_u, bool NA_as_zero_U,
     real_t lam, real_t w_user, real_t w_implicit, real_t lam_last,
     real_t l1_lam, real_t l1_lam_bias,
     bool scale_lam, bool scale_lam_sideinfo,
     bool scale_bias_const, real_t *restrict wsumA,
     bool do_B,
     int nthreads,
-    bool use_cg, int_t max_cg_steps, bool is_first_iter,
+    bool use_cg, int_t max_cg_steps,
     bool nonneg, int_t max_cd_steps,
     real_t *restrict bias_restore,
     real_t *restrict bias_BtX, real_t *restrict bias_X, real_t bias_X_glob,
@@ -1334,14 +1366,15 @@ void build_XBw
     real_t w,
     bool do_B, bool overwrite
 );
-void preprocess_vec
+int_t preprocess_vec
 (
-    real_t *restrict vec_full, int_t n,
-    int_t *restrict ix_vec, real_t *restrict vec_sp, size_t nnz,
+    real_t *restrict *vec_full_, int_t n,
+    int_t *restrict ix_vec, real_t *restrict *vec_sp_, size_t nnz,
     real_t glob_mean, real_t lam,
     real_t *restrict col_means,
     real_t *restrict vec_mean,
-    int_t *restrict cnt_NA
+    int_t *restrict cnt_NA,
+    bool *modified_vec, bool *modified_vec_sp
 );
 int_t convert_sparse_X
 (
@@ -1353,14 +1386,17 @@ int_t convert_sparse_X
 );
 int_t preprocess_sideinfo_matrix
 (
-    real_t *U, int_t m_u, int_t p,
-    int_t U_row[], int_t U_col[], real_t *U_sp, size_t nnz_U,
+    real_t *restrict *U_, int_t m_u, int_t p,
+    int_t U_row[], int_t U_col[], real_t *restrict *U_sp_, size_t nnz_U,
     real_t *U_colmeans, real_t *restrict *Utrans,
     size_t **U_csr_p, int_t **U_csr_i, real_t *restrict *U_csr,
     size_t **U_csc_p, int_t **U_csc_i, real_t *restrict *U_csc,
     int_t *restrict *cnt_NA_u_byrow, int_t *restrict *cnt_NA_u_bycol,
-    bool *full_dense_u, bool *near_dense_u_row, bool *near_dense_u_col,
-    bool NA_as_zero_U, bool nonneg, int nthreads
+    bool *restrict full_dense_u, bool *restrict near_dense_u_row,
+    bool *restrict near_dense_u_col,
+    bool *restrict some_full_u_row, bool *restrict some_full_u_col,
+    bool NA_as_zero_U, bool nonneg, int nthreads,
+    bool *modified_U, bool *modified_Usp
 );
 real_t wrapper_collective_fun_grad
 (

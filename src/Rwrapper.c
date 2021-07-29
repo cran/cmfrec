@@ -161,11 +161,10 @@ SEXP prepare_RhpcBLASctl_Call()
     ptr_glob_lst = NULL; \
 }
 
-SEXP deep_copy(SEXP x)
+SEXP deep_copy_vec(SEXP x)
 {
     SEXP out = PROTECT(Rf_allocVector(REALSXP, Rf_xlength(x)));
-    if (Rf_xlength(x))
-        memcpy(REAL(out), REAL(x), (size_t)Rf_xlength(x)*sizeof(double));
+    memcpy(REAL(out), REAL(x), (size_t)Rf_xlength(x)*sizeof(double));
     UNPROTECT(1);
     return out;
 }
@@ -180,6 +179,15 @@ SEXP as_size_t(SEXP x)
         ptr_out[ix] = ptr_x[ix];
     UNPROTECT(1);
     return out;
+}
+
+SEXP R_has_openmp()
+{
+    #ifdef _OPENMP
+    return Rf_ScalarLogical(1);
+    #else
+    return Rf_ScalarLogical(0);
+    #endif
 }
 
 double* get_ptr(SEXP x)
@@ -214,9 +222,10 @@ SEXP call_fit_collective_explicit_lbfgs
     SEXP A, SEXP B,
     SEXP C, SEXP Cb,
     SEXP D, SEXP Db,
+    SEXP seed,
     SEXP glob_mean,
     SEXP U_colmeans, SEXP I_colmeans,
-    SEXP m, SEXP n, SEXP k,
+    SEXP m_n_k,
     SEXP ixA, SEXP ixB, SEXP X,
     SEXP Xfull,
     SEXP Wfull, SEXP Wsp,
@@ -255,15 +264,19 @@ SEXP call_fit_collective_explicit_lbfgs
     else if (Rf_xlength(Wsp))
         weight = REAL(Wsp);
 
+    int m = INTEGER(m_n_k)[0];
+    int n = INTEGER(m_n_k)[1];
+    int k = INTEGER(m_n_k)[2];
+
     int retval = fit_collective_explicit_lbfgs(
         get_ptr(biasA), get_ptr(biasB),
         REAL(A), REAL(B),
         get_ptr(C), get_ptr(Cb),
         get_ptr(D), get_ptr(Db),
-        true, 1,
+        true, Rf_asInteger(seed),
         REAL(glob_mean),
         get_ptr(U_colmeans), get_ptr(I_colmeans),
-        Rf_asInteger(m), Rf_asInteger(n), Rf_asInteger(k),
+        m, n, k,
         get_ptr_int(ixA), get_ptr_int(ixB), get_ptr(X), (size_t)Rf_xlength(X),
         get_ptr(Xfull),
         weight,
@@ -306,6 +319,7 @@ SEXP call_fit_collective_explicit_als
     SEXP A, SEXP B,
     SEXP C, SEXP D,
     SEXP Ai, SEXP Bi,
+    SEXP seed,
     SEXP glob_mean,
     SEXP U_colmeans, SEXP I_colmeans,
     SEXP m, SEXP n, SEXP k,
@@ -388,7 +402,7 @@ SEXP call_fit_collective_explicit_als
         get_ptr(C), get_ptr(D),
         get_ptr(Ai), get_ptr(Bi),
         (bool) Rf_asLogical(add_implicit_features),
-        true, 1,
+        true, Rf_asInteger(seed),
         REAL(glob_mean),
         Rf_xlength(U_colmeans)? get_ptr(U_colmeans) : (double*)NULL,
         Rf_xlength(I_colmeans)? get_ptr(I_colmeans) : (double*)NULL,
@@ -438,6 +452,7 @@ SEXP call_fit_collective_implicit_als
 (
     SEXP A, SEXP B,
     SEXP C, SEXP D,
+    SEXP seed,
     SEXP w_main_multiplier,
     SEXP U_colmeans, SEXP I_colmeans,
     SEXP m, SEXP n, SEXP k,
@@ -479,7 +494,7 @@ SEXP call_fit_collective_implicit_als
     int retval = fit_collective_implicit_als(
         REAL(A), REAL(B),
         get_ptr(C), get_ptr(D),
-        true, 1,
+        true, Rf_asInteger(seed),
         Rf_xlength(U_colmeans)? get_ptr(U_colmeans) : (double*)NULL,
         Rf_xlength(I_colmeans)? get_ptr(I_colmeans) : (double*)NULL,
         Rf_asInteger(m), Rf_asInteger(n), Rf_asInteger(k),
@@ -588,6 +603,7 @@ SEXP call_fit_content_based_lbfgs
     SEXP C, SEXP C_bias,
     SEXP D, SEXP D_bias,
     SEXP start_with_ALS,
+    SEXP seed,
     SEXP glob_mean,
     SEXP m, SEXP n, SEXP k,
     SEXP ixA, SEXP ixB, SEXP X,
@@ -626,7 +642,7 @@ SEXP call_fit_content_based_lbfgs
         REAL(C), get_ptr(C_bias),
         REAL(D), get_ptr(D_bias),
         (bool) Rf_asLogical(start_with_ALS),
-        true, 1,
+        true, Rf_asInteger(seed),
         REAL(glob_mean),
         Rf_asInteger(m), Rf_asInteger(n), Rf_asInteger(k),
         get_ptr_int(ixA), get_ptr_int(ixB), get_ptr(X), (size_t)Rf_xlength(X),
@@ -662,6 +678,7 @@ SEXP call_fit_offsets_explicit_lbfgs
     SEXP A, SEXP B,
     SEXP C, SEXP C_bias,
     SEXP D, SEXP D_bias,
+    SEXP seed,
     SEXP glob_mean,
     SEXP m, SEXP n, SEXP k,
     SEXP ixA, SEXP ixB, SEXP X,
@@ -707,7 +724,7 @@ SEXP call_fit_offsets_explicit_lbfgs
         get_ptr(A), get_ptr(B),
         get_ptr(C), get_ptr(C_bias),
         get_ptr(D), get_ptr(D_bias),
-        true, 1,
+        true, Rf_asInteger(seed),
         REAL(glob_mean),
         Rf_asInteger(m), Rf_asInteger(n), Rf_asInteger(k),
         get_ptr_int(ixA), get_ptr_int(ixB), get_ptr(X), (size_t) Rf_xlength(X),
@@ -749,6 +766,7 @@ SEXP call_fit_offsets_explicit_als
     SEXP A, SEXP B,
     SEXP C, SEXP C_bias,
     SEXP D, SEXP D_bias,
+    SEXP seed,
     SEXP glob_mean,
     SEXP m, SEXP n, SEXP k,
     SEXP ixA, SEXP ixB, SEXP X,
@@ -786,7 +804,7 @@ SEXP call_fit_offsets_explicit_als
         REAL(A), REAL(B),
         get_ptr(C), get_ptr(C_bias),
         get_ptr(D), get_ptr(D_bias),
-        true, 1,
+        true, Rf_asInteger(seed),
         REAL(glob_mean),
         Rf_asInteger(m), Rf_asInteger(n), Rf_asInteger(k),
         get_ptr_int(ixA), get_ptr_int(ixB), get_ptr(X), (size_t) Rf_xlength(X),
@@ -822,6 +840,7 @@ SEXP call_fit_offsets_implicit_als
     SEXP A, SEXP B,
     SEXP C, SEXP C_bias,
     SEXP D, SEXP D_bias,
+    SEXP seed,
     SEXP m, SEXP n, SEXP k,
     SEXP ixA, SEXP ixB, SEXP X,
     SEXP add_intercepts,
@@ -847,7 +866,7 @@ SEXP call_fit_offsets_implicit_als
         REAL(A), REAL(B),
         get_ptr(C), get_ptr(C_bias),
         get_ptr(D), get_ptr(D_bias),
-        true, 1,
+        true, Rf_asInteger(seed),
         Rf_asInteger(m), Rf_asInteger(n), Rf_asInteger(k),
         INTEGER(ixA), INTEGER(ixB), REAL(X), (size_t) Rf_xlength(X),
         (bool) Rf_asLogical(add_intercepts),
@@ -2531,17 +2550,18 @@ SEXP call_topN_new_offsets_implicit
 
 /* Note: argument limit is 65 */
 static const R_CallMethodDef callMethods [] = {
-    {"deep_copy", (DL_FUNC) &deep_copy, 1},
     {"as_size_t", (DL_FUNC) &as_size_t, 1},
+    {"deep_copy_vec", (DL_FUNC) &deep_copy_vec, 1},
+    {"R_has_openmp", (DL_FUNC) &R_has_openmp, 0},
     /* ---------------------------------------------------- */
-    {"call_fit_collective_explicit_lbfgs", (DL_FUNC) &call_fit_collective_explicit_lbfgs, 65},
-    {"call_fit_collective_explicit_als", (DL_FUNC) &call_fit_collective_explicit_als, 63},
-    {"call_fit_collective_implicit_als", (DL_FUNC) &call_fit_collective_implicit_als, 54},
+    {"call_fit_collective_explicit_lbfgs", (DL_FUNC) &call_fit_collective_explicit_lbfgs, 64},
+    {"call_fit_collective_explicit_als", (DL_FUNC) &call_fit_collective_explicit_als, 64},
+    {"call_fit_collective_implicit_als", (DL_FUNC) &call_fit_collective_implicit_als, 55},
     {"call_fit_most_popular", (DL_FUNC) &call_fit_most_popular, 23},
-    {"call_fit_content_based_lbfgs", (DL_FUNC) &call_fit_content_based_lbfgs, 42},
-    {"call_fit_offsets_explicit_lbfgs", (DL_FUNC) &call_fit_offsets_explicit_lbfgs, 52},
-    {"call_fit_offsets_explicit_als", (DL_FUNC) &call_fit_offsets_explicit_als, 41},
-    {"call_fit_offsets_implicit_als", (DL_FUNC) &call_fit_offsets_implicit_als, 31},
+    {"call_fit_content_based_lbfgs", (DL_FUNC) &call_fit_content_based_lbfgs, 43},
+    {"call_fit_offsets_explicit_lbfgs", (DL_FUNC) &call_fit_offsets_explicit_lbfgs, 53},
+    {"call_fit_offsets_explicit_als", (DL_FUNC) &call_fit_offsets_explicit_als, 42},
+    {"call_fit_offsets_implicit_als", (DL_FUNC) &call_fit_offsets_implicit_als, 32},
     /* ---------------------------------------------------- */
     {"call_precompute_collective_explicit", (DL_FUNC) &call_precompute_collective_explicit, 36},
     {"call_precompute_collective_implicit", (DL_FUNC) &call_precompute_collective_implicit, 20},

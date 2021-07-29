@@ -56,6 +56,7 @@ CMF(
   verbose = TRUE,
   print_every = 10L,
   handle_interrupt = TRUE,
+  seed = 1L,
   nthreads = parallel::detectCores()
 )
 
@@ -89,6 +90,7 @@ CMF_implicit(
   precompute_for_predictions = TRUE,
   verbose = TRUE,
   handle_interrupt = TRUE,
+  seed = 1L,
   nthreads = parallel::detectCores()
 )
 
@@ -117,13 +119,14 @@ ContentBased(
   user_bias = FALSE,
   item_bias = FALSE,
   add_intercepts = TRUE,
-  maxiter = 15000L,
+  maxiter = 3000L,
   corr_pairs = 3L,
   parallelize = "separate",
   verbose = TRUE,
   print_every = 100L,
   handle_interrupt = TRUE,
   start_with_ALS = TRUE,
+  seed = 1L,
   nthreads = parallel::detectCores()
 )
 
@@ -154,6 +157,7 @@ OMF_explicit(
   verbose = TRUE,
   print_every = 100L,
   handle_interrupt = TRUE,
+  seed = 1L,
   nthreads = parallel::detectCores()
 )
 
@@ -172,6 +176,7 @@ OMF_implicit(
   finalize_chol = FALSE,
   verbose = FALSE,
   handle_interrupt = TRUE,
+  seed = 1L,
   nthreads = parallel::detectCores()
 )
 }
@@ -277,6 +282,7 @@ be a `data.frame`, with row names matching to the first column of `X` (which
 denotes the user/row IDs of the non-zero entries). Cannot be passed
 as a sparse matrix.
 Note that `U` and `U_bin` are not mutually exclusive.
+
 Only supported with ``method='lbfgs'``.}
 
 \item{I_bin}{Item binary columns/attributes (all values should be zero, one,
@@ -286,15 +292,20 @@ be a `data.frame`, with row names matching to the second column of `X` (which
 denotes the item/column IDs of the non-zero entries). Cannot be passed
 as a sparse matrix.
 Note that `I` and `I_bin` are not mutually exclusive.
+
 Only supported with ``method='lbfgs'``.}
 
 \item{weight}{(Optional and not recommended) Observation weights for entries in `X`.
 Must have the same shape as `X` - that is,
 if `X` is a sparse matrix, must be a vector with the same
 number of non-zero entries as `X`, if `X` is a dense matrix,
-`weight` must also be a dense matrix.
+`weight` must also be a dense matrix. Alternatively, if `X` is a sparse COO
+matrix, `weight` may also be passed as a sparse COO matrix in the same format,
+but it will not check whether the indices match between the two.
 If `X` is a `data.frame`, should be passed instead as its fourth column.
+
 Cannot have missing values.
+
 This is only supported for the explicit-feedback models, as the implicit-feedback
 ones determine the weights through `X`.}
 
@@ -306,6 +317,7 @@ in the `OMF_explicit` and `OMF_implicit` models.
 Additional non-shared components
 can also be specified through `k_user`, `k_item`, and `k_main`
 (also `k_sec` for `OMF_explicit`).
+
 Typical values are 30 to 100.}
 
 \item{lambda}{Regularization parameter to apply on the squared L2 norms of the matrices.
@@ -320,6 +332,7 @@ so this parameter needs good tuning.
 For example, a good value for the MovieLens10M would be `lambda=35`
 (or `lambda=0.05` with `scale_lam=TRUE`), whereas for the
 LastFM-360K, a good value would be `lambda=5`.
+
 Typical values are \eqn{10^{-2}}{0.01} to \eqn{10^2}{100}, with the
 implicit-feedback models requiring less regularization.}
 
@@ -459,12 +472,14 @@ of the `X` matrix.}
 weight in the optimization objective for the errors in the factorization
 of the `U` and `U_bin` matrices. For the `OMF_explicit` model, this denotes
 the multiplier for the effect of the user attributes in the final factor matrices.
+
 Ignored when passing neither `U` nor `U_bin`.}
 
 \item{w_item}{For the `CMF` and `CMF_implicit` models, this denotes the
 weight in the optimization objective for the errors in the factorization
 of the `I` and `I_bin` matrices. For the `OMF_explicit` model, this denotes
 the multiplier for the effect of the item attributes in the final factor matrices.
+
 Ignored when passing neither `I` nor `I_bin`.}
 
 \item{w_implicit}{Weight in the optimization objective for the errors in the factorizations
@@ -480,6 +495,7 @@ details). Note that, when adding L1 regularization, the model will be
 fit through a coordinate descent procedure, which is significantly
 slower than the Cholesky method with L2 regularization.
 Only supported with the ALS method.
+
 Not recommended.}
 
 \item{center_U}{Whether to center the 'U' matrix column-by-column. Be aware that this
@@ -500,12 +516,14 @@ of required iterations. Pass zero for no L-BFGS iterations limit.
 If the procedure is spending hundreds of iterations
 without any significant decrease in the loss function or gradient norm,
 it's highly likely that the regularization is too low.
+
 Ignored when using the ALS method.}
 
 \item{niter}{Number of alternating least-squares iterations to perform. Note that
 one iteration denotes an update round for all the matrices rather than
 an update of a single matrix. In general, the more iterations, the better
 the end result. Ignored when using the L-BFGS method.
+
 Typical values are 6 to 30.}
 
 \item{parallelize}{How to parallelize gradient calculations when using more than one
@@ -576,7 +594,9 @@ This option is not available when using the L-BFGS method.
 Note that, when determining non-negative factors, it will always
 use a coordinate descent method, regardless of the value passed
 for `use_cg` and `finalize_chol`.
+
 When used for recommender systems, one usually wants to pass `FALSE` here.
+
 For better results, do not use centering alongside this option,
 and use a higher regularization coupled with more iterations..}
 
@@ -635,6 +655,9 @@ early and leave a usable object with the parameters obtained up
 to the point when it was interrupted (when passing `TRUE`), or
 raise an interrupt exception without producing a fitted model object
 (when passing `FALSE`).}
+
+\item{seed}{Seed to use for random number generation. If passing `NULL`, will draw
+a non-reproducible random integer to use as seed.}
 
 \item{nthreads}{Number of parallel threads to use. Note that, the more threads that
 are used, the higher the memory consumption.}
@@ -924,6 +947,12 @@ by columns/items and also pass the data data with item indices sorted beforehand
 to the prediction functions. The package does not perform any indices sorting or
 de-duplication of entries of sparse matrices.
 }
+\section{Evaluating models}{
+
+Metrics for implicit-feedback recommendations or model quality can be calculated using the
+\href{https://cran.r-project.org/package=recometrics}{recometrics} package.
+}
+
 \section{Performance tips}{
 
 It is recommended to have the \href{https://cran.r-project.org/package=RhpcBLASctl}{RhpcBLASctl}
@@ -991,7 +1020,6 @@ if (require("recommenderlab") && require("MatrixExtra")) {
     ### Fit a factorization model
     ### (it's recommended to change the hyperparameters
     ###  and use multiple threads)
-    set.seed(1)
     model <- CMF(X=X, U=U, I=I, k=10L, niter=5L,
                  NA_as_zero_item=TRUE,
                  verbose=FALSE, nthreads=1L)

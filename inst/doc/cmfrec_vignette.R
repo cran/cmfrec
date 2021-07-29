@@ -36,12 +36,10 @@ X_train <- subsample_coo_matrix(X, ix_train)
 X_test <- subsample_coo_matrix(X, -ix_train)
 
 ## ---- eval=FALSE--------------------------------------------------------------
-#  set.seed(1)
 #  model.classic <- CMF(X_train, k=25, lambda=0.1, scale_lam=TRUE, verbose=FALSE)
 
 ## ---- echo=FALSE--------------------------------------------------------------
 ### Don't overload CRAN servers
-set.seed(1)
 if (!is_check) {
     model.classic <- CMF(X_train, k=25, lambda=0.1, scale_lam=TRUE, verbose=FALSE)
 } else {
@@ -64,7 +62,6 @@ pred_baseline <- predict(model.baseline, X_test)
 print_rmse(X_test, pred_baseline, "non-personalized model")
 
 ## ---- eval=FALSE--------------------------------------------------------------
-#  set.seed(1)
 #  model.improved <- CMF(X_train, k=25, lambda=0.1, scale_lam=TRUE,
 #                        add_implicit_features=TRUE, w_main=0.75, w_implicit=0.25,
 #                        use_cg=FALSE, niter=30, verbose=FALSE)
@@ -73,7 +70,6 @@ print_rmse(X_test, pred_baseline, "non-personalized model")
 
 ## ---- echo=FALSE--------------------------------------------------------------
 ### Don't overload CRAN servers
-set.seed(1)
 if (!is_check) {
     model.improved <- CMF(X_train, k=25, lambda=0.1, scale_lam=TRUE,
                           add_implicit_features=TRUE, w_main=0.75, w_implicit=0.25,
@@ -110,7 +106,6 @@ cat(dim(U), "\n")
 cat(dim(I), "\n")
 
 ## ---- eval=FALSE--------------------------------------------------------------
-#  set.seed(1)
 #  model.w.sideinfo <- CMF(X_train, U=U, I=I, NA_as_zero_item=TRUE,
 #                          k=25, lambda=0.1, scale_lam=TRUE,
 #                          niter=30, use_cg=FALSE, include_all_X=FALSE,
@@ -121,7 +116,6 @@ cat(dim(I), "\n")
 
 ## ---- echo=FALSE--------------------------------------------------------------
 ### Don't overload CRAN servers
-set.seed(1)
 if (!is_check) {
     model.w.sideinfo <- CMF(X_train, U=U, I=I, NA_as_zero_item=TRUE,
                             k=25, lambda=0.1, scale_lam=TRUE,
@@ -159,9 +153,7 @@ results %>%
 ## ---- eval=FALSE--------------------------------------------------------------
 #  ### Re-fitting the earlier model to all the data,
 #  ### this time *without* scaled regularization
-#  set.seed(1)
 #  model.classic <- CMF(X, k=20, lambda=10, scale_lam=FALSE, verbose=FALSE)
-#  set.seed(1)
 #  model.w.sideinfo <- CMF(X, U=U, I=I, k=20, lambda=10, scale_lam=FALSE,
 #                          w_main=0.75, w_user=0.125, w_item=0.125,
 #                          verbose=FALSE)
@@ -169,17 +161,13 @@ results %>%
 ## ---- echo=FALSE--------------------------------------------------------------
 ### Don't overload CRAN servers
 if (!is_check) {
-    set.seed(1)
     model.classic <- CMF(X, k=20, lambda=10, scale_lam=FALSE, verbose=FALSE)
-    set.seed(1)
     model.w.sideinfo <- CMF(X, U=U, I=I, k=20, lambda=10, scale_lam=FALSE,
                             w_main=0.75, w_user=0.125, w_item=0.125,
                             verbose=FALSE)
 } else {
-    set.seed(1)
     model.classic <- CMF(X, k=5, lambda=10, scale_lam=FALSE, verbose=FALSE,
                          niter=2, nthreads=1)
-    set.seed(1)
     model.w.sideinfo <- CMF(X, U=U, I=I, k=5, lambda=10, scale_lam=FALSE,
                             w_main=0.75, w_user=0.125, w_item=0.125,
                             verbose=FALSE, niter=2, nthreads=1)

@@ -66,7 +66,7 @@ process.inputs.items <- function(model, obj, X=NULL, X_col=NULL, X_val=NULL, wei
     }
 
     if (!NROW(processed_I$U) && NROW(obj$matrices$D) && obj$info$NA_as_zero_item) {
-        processed_I$p <- nrow(obj$matrices$D)
+        processed_I$p <- ncol(obj$matrices$D)
     }
     
     return(list(
@@ -168,6 +168,7 @@ item_factors <- function(model, X=NULL, X_col=NULL, X_val=NULL,
         b_bias <- numeric()
         if (NROW(model$matrices$item_bias))
             b_bias <- numeric(1L)
+
         ret_code <- .Call("call_factors_collective_explicit_single",
                           b_vec, b_bias,
                           inputs$processed_I$U, inputs$processed_I$p,
@@ -369,18 +370,18 @@ predict_new_items <- function(model, user, item=NULL,
         return(numeric())
     if (NROW(model$info$user_mapping))
         user <- as.integer(factor(user, model$info$user_mapping))
-    if (NROW(intersect(class(user), c("numeric", "character", "matrix"))))
+    if (inherits(user, c("numeric", "character", "matrix")))
         user <- as.integer(user)
-    if (!("integer" %in% class(user)))
+    if (!inherits(user, "integer"))
         stop("'user' must be an integer vector.")
     user <- user - 1L
     
     if (!is.null(item)) {
         if (NROW(model$info$user_mapping))
             item <- as.integer(factor(item, model$info$item_mapping))
-        if (NROW(intersect(class(item), c("numeric", "character", "matrix"))))
+        if (inherits(item, c("numeric", "character", "matrix")))
             item <- as.integer(item)
-        if (!("integer" %in% class(item)))
+        if (!inherits(item, "integer"))
             stop("'item' must be an integer vector.")
         item <- item - 1L
     } else {

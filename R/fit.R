@@ -103,7 +103,9 @@ NULL
 #' and use single-precision floating point numbers (not supported in the R version of this
 #' package).
 #' }
-#' 
+#' @section Evaluating models:
+#' Metrics for implicit-feedback recommendations or model quality can be calculated using the
+#' \href{https://cran.r-project.org/package=recometrics}{recometrics} package.
 #' @section Performance tips:
 #' It is recommended to have the \href{https://cran.r-project.org/package=RhpcBLASctl}{RhpcBLASctl}
 #' package installed for better performance - if available, will be used to control the number
@@ -240,6 +242,7 @@ NULL
 #' denotes the user/row IDs of the non-zero entries). Cannot be passed
 #' as a sparse matrix.
 #' Note that `U` and `U_bin` are not mutually exclusive.
+#' 
 #' Only supported with ``method='lbfgs'``.
 #' @param I_bin Item binary columns/attributes (all values should be zero, one,
 #' or missing), for which a sigmoid transformation will be applied on the
@@ -248,14 +251,19 @@ NULL
 #' denotes the item/column IDs of the non-zero entries). Cannot be passed
 #' as a sparse matrix.
 #' Note that `I` and `I_bin` are not mutually exclusive.
+#' 
 #' Only supported with ``method='lbfgs'``.
 #' @param weight (Optional and not recommended) Observation weights for entries in `X`.
 #' Must have the same shape as `X` - that is,
 #' if `X` is a sparse matrix, must be a vector with the same
 #' number of non-zero entries as `X`, if `X` is a dense matrix,
-#' `weight` must also be a dense matrix.
+#' `weight` must also be a dense matrix. Alternatively, if `X` is a sparse COO
+#' matrix, `weight` may also be passed as a sparse COO matrix in the same format,
+#' but it will not check whether the indices match between the two.
 #' If `X` is a `data.frame`, should be passed instead as its fourth column.
+#' 
 #' Cannot have missing values.
+#' 
 #' This is only supported for the explicit-feedback models, as the implicit-feedback
 #' ones determine the weights through `X`.
 #' @param k Number of latent factors to use (dimensionality of the low-rank
@@ -266,6 +274,7 @@ NULL
 #' Additional non-shared components
 #' can also be specified through `k_user`, `k_item`, and `k_main`
 #' (also `k_sec` for `OMF_explicit`).
+#' 
 #' Typical values are 30 to 100.
 #' @param lambda Regularization parameter to apply on the squared L2 norms of the matrices.
 #' Some models (`CMF`, `CMF_implicit`, `ContentBased`, and `OMF_explicit` with the L-BFGS method)
@@ -279,6 +288,7 @@ NULL
 #' For example, a good value for the MovieLens10M would be `lambda=35`
 #' (or `lambda=0.05` with `scale_lam=TRUE`), whereas for the
 #' LastFM-360K, a good value would be `lambda=5`.
+#' 
 #' Typical values are \eqn{10^{-2}}{0.01} to \eqn{10^2}{100}, with the
 #' implicit-feedback models requiring less regularization.
 #' @param scale_lam Whether to scale (increase) the regularization parameter
@@ -334,6 +344,7 @@ NULL
 #' fit through a coordinate descent procedure, which is significantly
 #' slower than the Cholesky method with L2 regularization.
 #' Only supported with the ALS method.
+#' 
 #' Not recommended.
 #' @param center_U Whether to center the 'U' matrix column-by-column. Be aware that this
 #' is a simple mean centering without regularization. One might want to
@@ -429,11 +440,13 @@ NULL
 #' weight in the optimization objective for the errors in the factorization
 #' of the `U` and `U_bin` matrices. For the `OMF_explicit` model, this denotes
 #' the multiplier for the effect of the user attributes in the final factor matrices.
+#' 
 #' Ignored when passing neither `U` nor `U_bin`.
 #' @param w_item For the `CMF` and `CMF_implicit` models, this denotes the
 #' weight in the optimization objective for the errors in the factorization
 #' of the `I` and `I_bin` matrices. For the `OMF_explicit` model, this denotes
 #' the multiplier for the effect of the item attributes in the final factor matrices.
+#' 
 #' Ignored when passing neither `I` nor `I_bin`.
 #' @param w_implicit Weight in the optimization objective for the errors in the factorizations
 #' of the implicit `X` matrices. Note that, depending on the sparsity of the
@@ -445,6 +458,7 @@ NULL
 #' one iteration denotes an update round for all the matrices rather than
 #' an update of a single matrix. In general, the more iterations, the better
 #' the end result. Ignored when using the L-BFGS method.
+#' 
 #' Typical values are 6 to 30.
 #' @param maxiter Maximum L-BFGS iterations to perform. The procedure will halt if it
 #' has not converged after this number of updates. Note that the `CMF` model is likely to
@@ -456,6 +470,7 @@ NULL
 #' If the procedure is spending hundreds of iterations
 #' without any significant decrease in the loss function or gradient norm,
 #' it's highly likely that the regularization is too low.
+#' 
 #' Ignored when using the ALS method.
 #' @param finalize_chol When passing `use_cg=TRUE` and using the ALS method, whether to perform the last iteration with
 #' the Cholesky solver. This will make it slower, but will avoid the issue
@@ -525,7 +540,9 @@ NULL
 #' Note that, when determining non-negative factors, it will always
 #' use a coordinate descent method, regardless of the value passed
 #' for `use_cg` and `finalize_chol`.
+#' 
 #' When used for recommender systems, one usually wants to pass `FALSE` here.
+#' 
 #' For better results, do not use centering alongside this option,
 #' and use a higher regularization coupled with more iterations..
 #' @param nonneg_C Whether to constrain the `C` matrix to be non-negative.
@@ -590,6 +607,8 @@ NULL
 #' to the point when it was interrupted (when passing `TRUE`), or
 #' raise an interrupt exception without producing a fitted model object
 #' (when passing `FALSE`).
+#' @param seed Seed to use for random number generation. If passing `NULL`, will draw
+#' a non-reproducible random integer to use as seed.
 #' @param nthreads Number of parallel threads to use. Note that, the more threads that
 #' are used, the higher the memory consumption.
 #' @return Returns a model object (class named just like the function that produced it,
@@ -769,7 +788,6 @@ NULL
 #'     ### Fit a factorization model
 #'     ### (it's recommended to change the hyperparameters
 #'     ###  and use multiple threads)
-#'     set.seed(1)
 #'     model <- CMF(X=X, U=U, I=I, k=10L, niter=5L,
 #'                  NA_as_zero_item=TRUE,
 #'                  verbose=FALSE, nthreads=1L)
@@ -858,7 +876,11 @@ validate.inputs <- function(model, implicit=FALSE,
                             precompute_for_predictions=TRUE, include_all_X=TRUE,
                             verbose=TRUE, print_every=10L,
                             handle_interrupt=TRUE,
+                            seed=1L,
                             nthreads=parallel::detectCores()) {
+
+    if (is.null(seed) || is.na(seed))
+        seed <- sample.int(.Machine$integer.max, size=1)
     
     k        <-  check.pos.int(k, "k", model != "OMF_explicit")
     k_user   <-  check.pos.int(k_user, "k_user", FALSE)
@@ -867,6 +889,7 @@ validate.inputs <- function(model, implicit=FALSE,
     k_sec    <-  check.pos.int(k_sec, "k_sec", FALSE)
     maxiter  <-  check.pos.int(maxiter, "maxiter", FALSE)
     niter    <-  check.pos.int(niter, "niter", TRUE)
+    seed     <-  check.pos.int(seed, "seed", FALSE)
     corr_pairs    <-  check.pos.int(corr_pairs, "corr_pairs", TRUE)
     max_cg_steps  <-  check.pos.int(max_cg_steps, "max_cg_steps", TRUE)
     max_cd_steps  <-  check.pos.int(max_cd_steps, "max_cd_steps", FALSE)
@@ -908,6 +931,14 @@ validate.inputs <- function(model, implicit=FALSE,
     
     method       <-  check.str.option(method, "method", c("als", "lbfgs"))
     parallelize  <-  check.str.option(parallelize, "parallelize", c("separate", "single"))
+
+    if (nthreads > 1L && !.Call("R_has_openmp")) {
+        msg <- paste0("Attempting to use more than 1 thread, but ",
+                      "package was compiled without OpenMP support.")
+        if (tolower(Sys.info()[["sysname"]]) == "darwin")
+            msg <- paste0(msg, " See https://mac.r-project.org/openmp/")
+        warning(msg)
+    }
     
     allow_different_lambda <- TRUE
     if (model == "OMF_implicit")
@@ -1003,40 +1034,40 @@ validate.inputs <- function(model, implicit=FALSE,
     allowed_X   <- c("data.frame", "dgTMatrix", "matrix.coo", "matrix")
     allowed_U   <- c("data.frame", "matrix")
     allowed_bin <- c("data.frame", "matrix")
-    allowed_W   <- c("data.frame", "matrix", "numeric")
+    allowed_W   <- c("data.frame", "matrix", "numeric", "dgTMatrix", "matrix.coo")
     msg_err     <- "Invalid '%s' - allowed types: %s"
     msg_empty   <- "'%s' is empty. If non-present, should pass it as NULL."
     if (!(model %in% c("OMF_explicit", "OMF_implicit") && method == "als"))
         allowed_U <- c(allowed_U, c("dgTMatrix", "matrix.coo"))
     
-    if (!NROW(intersect(class(X), allowed_X)))
+    if (!inherits(X, allowed_X))
         stop(sprintf(msg_err, "X", paste(allowed_X, collapse=", ")))
     if (!is.null(U)) {
-        if (!NROW(intersect(class(U), allowed_U)))
+        if (!inherits(U, allowed_U))
             stop(sprintf(msg_err, "U", paste(allowed_U, collapse=", ")))
         if (!max(c(NROW(U), NCOL(U))))
             stop(sprintf(msg_empty, "U"))
     }
     if (!is.null(I)) {
-        if (!NROW(intersect(class(I), allowed_U)))
+        if (!inherits(I, allowed_U))
             stop(sprintf(msg_err, "I", paste(allowed_U, collapse=", ")))
         if (!max(c(NROW(I), NCOL(I))))
             stop(sprintf(msg_empty, "I"))
     }
     if (!is.null(U_bin)) {
-        if (!NROW(intersect(class(U_bin), allowed_bin)))
+        if (!inherits(U_bin, allowed_bin))
             stop(sprintf(msg_err, "U_bin", paste(allowed_bin, collapse=", ")))
         if (!max(c(NROW(U_bin), NCOL(U_bin))))
             stop(sprintf(msg_empty, "U_bin"))
     }
     if (!is.null(I_bin)) {
-        if (!NROW(intersect(class(I_bin), allowed_bin)))
+        if (!inherits(I_bin, allowed_bin))
             stop(sprintf(msg_err, "I_bin", paste(allowed_bin, collapse=", ")))
         if (!max(c(NROW(I_bin), NCOL(I_bin))))
             stop(sprintf(msg_empty, "I_bin"))
     }
     if (!is.null(weight)) {
-        if (!NROW(intersect(class(weight), allowed_W)))
+        if (!inherits(weight, allowed_W))
             stop(sprintf(msg_err, "weight", paste(allowed_W, collapse=", ")))
     }
     
@@ -1044,13 +1075,13 @@ validate.inputs <- function(model, implicit=FALSE,
     I_cols      <-  character()
     U_bin_cols  <-  character()
     I_bin_cols  <-  character()
-    if ("data.frame" %in% class(U))
+    if (is.data.frame(U))
         U_cols <- names(U)
-    if ("data.frame" %in% class(I))
+    if (is.data.frame(I))
         I_cols <- names(I)
-    if ("data.frame" %in% class(U_bin))
+    if (is.data.frame(U_bin))
         U_bin_cols <- names(U_bin)
-    if ("data.frame" %in% class(I_bin))
+    if (is.data.frame(I_bin))
         I_bin_cols <- names(I_bin)
     
     U      <-  cast.df.to.matrix(U)
@@ -1200,6 +1231,7 @@ validate.inputs <- function(model, implicit=FALSE,
         include_all_X = include_all_X, center = center,
         verbose = verbose, print_every = print_every,
         handle_interrupt = handle_interrupt,
+        seed = seed,
         nthreads = nthreads
     ))
 }
@@ -1219,7 +1251,7 @@ CMF <- function(X, U=NULL, I=NULL, U_bin=NULL, I_bin=NULL, weight=NULL,
                 nonneg=FALSE, nonneg_C=FALSE, nonneg_D=FALSE, max_cd_steps=100L,
                 precompute_for_predictions=TRUE, include_all_X=TRUE,
                 verbose=TRUE, print_every=10L,
-                handle_interrupt=TRUE,
+                handle_interrupt=TRUE, seed=1L,
                 nthreads=parallel::detectCores()) {
     
     inputs <- validate.inputs(model = "CMF",
@@ -1244,7 +1276,7 @@ CMF <- function(X, U=NULL, I=NULL, U_bin=NULL, I_bin=NULL, weight=NULL,
                               precompute_for_predictions = precompute_for_predictions,
                               include_all_X = include_all_X,
                               verbose = verbose, print_every = print_every,
-                              handle_interrupt = handle_interrupt,
+                              handle_interrupt = handle_interrupt, seed = seed,
                               nthreads = nthreads)
     return(.CMF(inputs$processed_X, inputs$processed_U, inputs$processed_I,
                 inputs$processed_U_bin, inputs$processed_I_bin,
@@ -1271,7 +1303,7 @@ CMF <- function(X, U=NULL, I=NULL, U_bin=NULL, I_bin=NULL, weight=NULL,
                 precompute_for_predictions = inputs$precompute_for_predictions,
                 include_all_X = inputs$include_all_X,
                 verbose = inputs$verbose, print_every = inputs$print_every,
-                handle_interrupt = inputs$handle_interrupt,
+                handle_interrupt = inputs$handle_interrupt, seed = inputs$seed,
                 nthreads = inputs$nthreads))
     
 }
@@ -1290,7 +1322,7 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                          apply_log_transf=FALSE,
                          precompute_for_predictions=TRUE,
                          verbose=TRUE,
-                         handle_interrupt=TRUE,
+                         handle_interrupt=TRUE, seed=1L,
                          nthreads=parallel::detectCores()) {
     
     inputs <- validate.inputs(model = "CMF_implicit",
@@ -1309,7 +1341,7 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                               apply_log_transf = apply_log_transf,
                               precompute_for_predictions = precompute_for_predictions,
                               verbose = verbose,
-                              handle_interrupt = handle_interrupt,
+                              handle_interrupt = handle_interrupt, seed = seed,
                               nthreads = nthreads)
     return(.CMF_implicit(inputs$processed_X, inputs$processed_U, inputs$processed_I,
                          inputs$user_mapping, inputs$item_mapping,
@@ -1328,7 +1360,7 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                          apply_log_transf = inputs$apply_log_transf,
                          precompute_for_predictions = inputs$precompute_for_predictions,
                          verbose = inputs$verbose,
-                         handle_interrupt = inputs$handle_interrupt,
+                         handle_interrupt = inputs$handle_interrupt, seed = inputs$seed,
                          nthreads = inputs$nthreads))
     
 }
@@ -1352,7 +1384,7 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                  nonneg=FALSE, nonneg_C=FALSE, nonneg_D=FALSE, max_cd_steps=100L,
                  precompute_for_predictions=TRUE, include_all_X=TRUE,
                  verbose=TRUE, print_every=10L,
-                 handle_interrupt=TRUE,
+                 handle_interrupt=TRUE, seed=1L,
                  nthreads=parallel::detectCores()) {
     
     
@@ -1388,6 +1420,7 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
     this$info$center           <-  center
     this$info$center_U         <-  center_U
     this$info$center_I         <-  center_I
+    this$info$seed             <-  seed
     this$info$nthreads         <-  nthreads
     this$info$add_implicit_features  <-  add_implicit_features
     this$info$scale_lam              <-  scale_lam
@@ -1476,6 +1509,7 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                           this$matrices$A, this$matrices$B,
                           this$matrices$C, this$matrices$D,
                           this$matrices$Ai, this$matrices$Bi,
+                          this$info$seed,
                           glob_mean,
                           this$matrices$U_colmeans, this$matrices$I_colmeans,
                           processed_X$m, processed_X$n, k,
@@ -1509,14 +1543,16 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                           this$precomputed$CtC,
                           this$precomputed$CtUbias)
     } else {
+        m_n_k <- as.integer(c(processed_X$m, processed_X$n, k))
         ret_code <- .Call("call_fit_collective_explicit_lbfgs",
                           this$matrices$user_bias, this$matrices$item_bias,
                           this$matrices$A, this$matrices$B,
                           this$matrices$C, this$matrices$Cb,
                           this$matrices$D, this$matrices$Db,
+                          this$info$seed,
                           glob_mean,
                           this$matrices$U_colmeans, this$matrices$I_colmeans,
-                          processed_X$m, processed_X$n, k,
+                          m_n_k,
                           processed_X$Xrow, processed_X$Xcol, processed_X$Xval,
                           processed_X$Xarr,
                           processed_X$Warr, processed_X$Wsp,
@@ -1571,7 +1607,7 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
                           apply_log_transf=FALSE,
                           precompute_for_predictions=TRUE,
                           verbose=TRUE,
-                          handle_interrupt=TRUE,
+                          handle_interrupt=TRUE, seed=1L,
                           nthreads=parallel::detectCores()) {
     
     
@@ -1604,6 +1640,7 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
     this$info$nonneg           <-  nonneg
     this$info$implicit         <-  TRUE
     this$info$apply_log_transf <-  apply_log_transf
+    this$info$seed             <-  seed
     this$info$nthreads         <-  nthreads
     
     ### Allocate matrices
@@ -1644,6 +1681,7 @@ CMF_implicit <- function(X, U=NULL, I=NULL,
     ret_code <- .Call("call_fit_collective_implicit_als",
                       this$matrices$A, this$matrices$B,
                       this$matrices$C, this$matrices$D,
+                      this$info$seed,
                       w_main_multiplier,
                       this$matrices$U_colmeans, this$matrices$I_colmeans,
                       processed_X$m, processed_X$n, k,
@@ -1772,9 +1810,9 @@ MostPopular <- function(X, weight=NULL, implicit=FALSE,
 #' @rdname fit
 ContentBased <- function(X, U, I, weight=NULL,
                          k=20L, lambda=100., user_bias=FALSE, item_bias=FALSE,
-                         add_intercepts=TRUE, maxiter=15000L, corr_pairs=3L,
+                         add_intercepts=TRUE, maxiter=3000L, corr_pairs=3L,
                          parallelize="separate", verbose=TRUE, print_every=100L,
-                         handle_interrupt=TRUE, start_with_ALS=TRUE,
+                         handle_interrupt=TRUE, start_with_ALS=TRUE, seed=1L,
                          nthreads=parallel::detectCores()) {
     inputs <- validate.inputs(model = "ContentBased",
                               X = X, U = U, I = I, weight = weight,
@@ -1783,7 +1821,7 @@ ContentBased <- function(X, U, I, weight=NULL,
                               maxiter = maxiter, corr_pairs = corr_pairs,
                               parallelize = parallelize, verbose = verbose, print_every = print_every,
                               handle_interrupt = handle_interrupt, start_with_ALS = start_with_ALS,
-                              nthreads = nthreads)
+                              seed = seed, nthreads = nthreads)
     return(.ContentBased(inputs$processed_X, inputs$processed_U, inputs$processed_I,
                          inputs$user_mapping, inputs$item_mapping,
                          inputs$U_cols, inputs$I_cols,
@@ -1794,7 +1832,7 @@ ContentBased <- function(X, U, I, weight=NULL,
                          parallelize = inputs$parallelize,
                          verbose = inputs$verbose, print_every = inputs$print_every,
                          handle_interrupt = inputs$handle_interrupt,
-                         start_with_ALS = inputs$start_with_ALS,
+                         start_with_ALS = inputs$start_with_ALS, seed = inputs$seed,
                          nthreads = inputs$start_with_ALS))
 }
 
@@ -1804,7 +1842,7 @@ ContentBased <- function(X, U, I, weight=NULL,
                           k=20L, lambda=100., user_bias=FALSE, item_bias=FALSE,
                           add_intercepts=TRUE, maxiter=15000L, corr_pairs=3L,
                           parallelize="separate", verbose=TRUE, print_every=100L,
-                          handle_interrupt=TRUE, start_with_ALS=TRUE,
+                          handle_interrupt=TRUE, start_with_ALS=TRUE, seed=1L,
                           nthreads=parallel::detectCores()) {
     
     this <- list(
@@ -1821,6 +1859,7 @@ ContentBased <- function(X, U, I, weight=NULL,
     this$info$item_mapping  <-  item_mapping
     this$info$U_cols    <-  U_cols
     this$info$I_cols    <-  I_cols
+    this$info$seed      <-  seed
     this$info$nthreads  <-  nthreads
     
     ### Allocate matrices
@@ -1854,6 +1893,7 @@ ContentBased <- function(X, U, I, weight=NULL,
                       this$matrices$C, this$matrices$C_bias,
                       this$matrices$D, this$matrices$D_bias,
                       start_with_ALS,
+                      this$info$seed,
                       glob_mean,
                       m_max, n_max, k,
                       processed_X$Xrow, processed_X$Xcol, processed_X$Xval,
@@ -1894,7 +1934,7 @@ OMF_explicit <- function(X, U=NULL, I=NULL, weight=NULL,
                          max_cg_steps=3L, finalize_chol=TRUE,
                          NA_as_zero=FALSE,
                          verbose=TRUE, print_every=100L,
-                         handle_interrupt=TRUE,
+                         handle_interrupt=TRUE, seed=1L,
                          nthreads=parallel::detectCores()) {
     
     inputs <- validate.inputs(model = "OMF_explicit",
@@ -1908,7 +1948,7 @@ OMF_explicit <- function(X, U=NULL, I=NULL, weight=NULL,
                               max_cg_steps = max_cg_steps, finalize_chol = finalize_chol,
                               NA_as_zero = NA_as_zero,
                               verbose = verbose, print_every = print_every,
-                              handle_interrupt = handle_interrupt,
+                              handle_interrupt = handle_interrupt, seed = seed,
                               nthreads = nthreads)
     return(.OMF_explicit(inputs$processed_X, inputs$processed_U, inputs$processed_I,
                          inputs$user_mapping, inputs$item_mapping,
@@ -1925,7 +1965,7 @@ OMF_explicit <- function(X, U=NULL, I=NULL, weight=NULL,
                          max_cg_steps = inputs$max_cg_steps, finalize_chol = inputs$finalize_chol,
                          NA_as_zero = inputs$NA_as_zero,
                          verbose = inputs$verbose, print_every = inputs$print_every,
-                         handle_interrupt = inputs$handle_interrupt,
+                         handle_interrupt = inputs$handle_interrupt, seed = inputs$seed,
                          nthreads = nthreads))
 }
 
@@ -1940,7 +1980,7 @@ OMF_explicit <- function(X, U=NULL, I=NULL, weight=NULL,
                           max_cg_steps=3L, finalize_chol=TRUE,
                           NA_as_zero=FALSE,
                           verbose=TRUE, print_every=100L,
-                          handle_interrupt=TRUE,
+                          handle_interrupt=TRUE, seed=1L,
                           nthreads=parallel::detectCores()) {
     
     this <- list(
@@ -1959,6 +1999,7 @@ OMF_explicit <- function(X, U=NULL, I=NULL, weight=NULL,
     this$info$item_mapping  <-  item_mapping
     this$info$U_cols    <-  U_cols
     this$info$I_cols    <-  I_cols
+    this$info$seed      <-  seed
     this$info$nthreads  <-  nthreads
     
     ### Allocate matrices
@@ -2003,6 +2044,7 @@ OMF_explicit <- function(X, U=NULL, I=NULL, weight=NULL,
                           this$matrices$A, this$matrices$B,
                           this$matrices$C, this$matrices$C_bias,
                           this$matrices$D, this$matrices$D_bias,
+                          this$info$seed,
                           glob_mean,
                           m_max, n_max, k,
                           processed_X$Xrow, processed_X$Xcol, processed_X$Xval,
@@ -2031,6 +2073,7 @@ OMF_explicit <- function(X, U=NULL, I=NULL, weight=NULL,
                           this$matrices$A, this$matrices$B,
                           this$matrices$C, this$matrices$C_bias,
                           this$matrices$D, this$matrices$D_bias,
+                          this$info$seed,
                           glob_mean,
                           m_max, n_max, k,
                           processed_X$Xrow, processed_X$Xcol, processed_X$Xval,
@@ -2072,7 +2115,7 @@ OMF_implicit <- function(X, U=NULL, I=NULL,
                          apply_log_transf=FALSE,
                          max_cg_steps=3L, finalize_chol=FALSE,
                          verbose=FALSE,
-                         handle_interrupt=TRUE,
+                         handle_interrupt=TRUE, seed=1L,
                          nthreads=parallel::detectCores()) {
     
     inputs <- validate.inputs(model = "OMF_implicit",
@@ -2082,7 +2125,7 @@ OMF_implicit <- function(X, U=NULL, I=NULL,
                               max_cg_steps = max_cg_steps, finalize_chol = finalize_chol,
                               apply_log_transf = apply_log_transf,
                               verbose = verbose,
-                              handle_interrupt = handle_interrupt,
+                              handle_interrupt = handle_interrupt, seed = seed,
                               nthreads = nthreads)
     return(.OMF_implicit(inputs$processed_X, inputs$processed_U, inputs$processed_I,
                          inputs$user_mapping, inputs$item_mapping,
@@ -2094,7 +2137,7 @@ OMF_implicit <- function(X, U=NULL, I=NULL,
                          apply_log_transf = inputs$apply_log_transf,
                          max_cg_steps = inputs$max_cg_steps, finalize_chol = inputs$finalize_chol,
                          verbose = inputs$verbose,
-                         handle_interrupt = inputs$handle_interrupt,
+                         handle_interrupt = inputs$handle_interrupt, seed = inputs$seed,
                          nthreads = nthreads))
     
 }
@@ -2107,7 +2150,7 @@ OMF_implicit <- function(X, U=NULL, I=NULL,
                           apply_log_transf=FALSE,
                           max_cg_steps=3L, finalize_chol=TRUE,
                           verbose=FALSE,
-                          handle_interrupt=TRUE,
+                          handle_interrupt=TRUE, seed=1L,
                           nthreads=parallel::detectCores()) {
     
     this <- list(
@@ -2126,6 +2169,7 @@ OMF_implicit <- function(X, U=NULL, I=NULL,
     this$info$apply_log_transf  <-  apply_log_transf
     this$info$U_cols    <-  U_cols
     this$info$I_cols    <-  I_cols
+    this$info$seed      <-  seed
     this$info$nthreads  <-  nthreads
     
     ### Allocate matrices
@@ -2152,6 +2196,7 @@ OMF_implicit <- function(X, U=NULL, I=NULL,
                       this$matrices$A, this$matrices$B,
                       this$matrices$C, this$matrices$C_bias,
                       this$matrices$D, this$matrices$D_bias,
+                      this$info$seed,
                       processed_X$m, processed_X$n, this$info$k,
                       processed_X$Xrow, processed_X$Xcol, processed_X$Xval,
                       add_intercepts,

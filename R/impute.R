@@ -46,7 +46,6 @@
 #' SeqMat <- matrix(1:50, nrow=10)
 #' SeqMat[2,1] <- NaN
 #' SeqMat[8,3] <- NaN
-#' set.seed(123)
 #' m <- CMF(SeqMat, k=1, lambda=1e-10, nthreads=1L, verbose=FALSE)
 #' imputeX(m, SeqMat)
 #' 
@@ -55,14 +54,14 @@
 #' if (require("MASS")) {
 #'     ### Generate random data, set some values as NA
 #'     set.seed(1)
-#'     n_rows <- 100
-#'     n_cols <- 50
+#'     n_rows <- 1000
+#'     n_cols <- 5
 #'     mu <- rnorm(n_cols)
 #'     S <- matrix(rnorm(n_cols^2), nrow = n_cols)
-#'     S <- t(S) %*% S + diag(1, n_cols)
+#'     S <- t(S) %*% S
 #'     X <- MASS::mvrnorm(n_rows, mu, S)
 #'     X_na <- X
-#'     values_NA <- matrix(runif(n_rows*n_cols) < .25, nrow=n_rows)
+#'     values_NA <- matrix(runif(n_rows*n_cols) < .15, nrow=n_rows)
 #'     X_na[values_NA] <- NaN
 #'     
 #'     ### In the event that any column is fully missing
@@ -73,8 +72,8 @@
 #'     }
 #'     
 #'     ### Impute missing values with model
-#'     set.seed(1)
-#'     model <- CMF(X_na, k=15, lambda=50, user_bias=FALSE,
+#'     model <- CMF(X_na, k=3, lambda=c(0,0,1,1,1,1),
+#'                  user_bias=FALSE,
 #'                  verbose=FALSE, nthreads=1L)
 #'     X_imputed <- imputeX(model, X_na)
 #'     cat(sprintf("RMSE for imputed values w/model: %f\n",
@@ -93,10 +92,12 @@ imputeX <- function(model, X, weight = NULL, U = NULL, U_bin = NULL) {
         stop("Method is only applicable to 'CMF' model.")
     if (model$info$only_prediction_info)
         stop("Cannot use this function after dropping non-essential matrices.")
-    if (!("matrix" %in% class(X)))
+    if (!is.matrix(X))
         stop("'X' must be a matrix with NAN values.")
     if (!anyNA(X))
         return(X)
+    if (nrow(X) == 1L || ncol(X) == 1L)
+        X <- matrix(.Call("deep_copy_vec", X), nrow=nrow(X), ncol=ncol(X))
     
     inputs <- process.data.factors("CMF", model,
                                    X = X, weight = weight,

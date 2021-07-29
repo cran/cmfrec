@@ -107,12 +107,13 @@ void copy_arr_(real_t *restrict src, real_t *restrict dest, size_t n, int nthrea
     /* Note: don't use BLAS scopy as it's actually much slower */
     if (n == 0) return;
     #if defined(_OPENMP)
-    nthreads = cap_to_4(nthreads);
-    size_t chunk_size = n / (size_t)nthreads;
-    size_t remainder = n % (size_t)nthreads;
-    int_t i = 0;
     if (nthreads > 1 && n > (size_t)1e8)
     {
+        nthreads = cap_to_4(nthreads);
+        size_t chunk_size = n / (size_t)nthreads;
+        size_t remainder = n % (size_t)nthreads;
+        int_t i = 0;
+
         #pragma omp parallel for schedule(static, 1) \
                 firstprivate(src, dest, chunk_size, nthreads) num_threads(nthreads)
         for (i = 0; i < nthreads; i++)
@@ -126,6 +127,8 @@ void copy_arr_(real_t *restrict src, real_t *restrict dest, size_t n, int nthrea
     }
 }
 
+/* Note: the C99 standard only guarantes that isnan(NAN)!=0, and some compilers
+   like mingw64 will NOT make isnan(NAN)==1. */
 int_t count_NAs(real_t arr[], size_t n, int nthreads)
 {
     int_t cnt_NA = 0;
@@ -140,7 +143,7 @@ int_t count_NAs(real_t arr[], size_t n, int nthreads)
 
     #pragma omp parallel for schedule(static) num_threads(nthreads) shared(arr, n) reduction(+:cnt_NA)
     for (size_t_for ix = 0; ix < n; ix++)
-        cnt_NA += isnan(arr[ix]);
+        cnt_NA += isnan(arr[ix]) != 0;
     if (cnt_NA < 0) cnt_NA = INT_MAX; /* <- overflow */
     return cnt_NA;
 }
@@ -149,7 +152,8 @@ void count_NAs_by_row
 (
     real_t *restrict arr, int_t m, int_t n,
     int_t *restrict cnt_NA, int nthreads,
-    bool *restrict full_dense, bool *restrict near_dense
+    bool *restrict full_dense, bool *restrict near_dense,
+    bool *restrict some_full
 )
 {
     #if defined(_OPENMP) && \
@@ -164,7 +168,7 @@ void count_NAs_by_row
     {
         int_t cnt = 0;
         for (size_t col = 0; col < (size_t)n; col++)
-            cnt += isnan(arr[col + row*n]);
+            cnt += isnan(arr[col + row*n]) != 0;
         cnt_NA[row] = cnt;
     }
 
@@ -182,12 +186,24 @@ void count_NAs_by_row
        based approach or closed-form when optimizing a matrix in isolation */
     *near_dense = false;
     int_t cnt_rows_w_NA = 0;
-    if (!full_dense)
+    if (!(*full_dense))
     {
         for (int_t ix = 0; ix < m; ix++)
             cnt_rows_w_NA += (cnt_NA[ix] > 0);
         if ((m - cnt_rows_w_NA) >= (int)(0.75 * (double)m))
             *near_dense = true;
+    }
+
+    *some_full = *full_dense;
+    if (!(*full_dense))
+    {
+        for (int_t ix = 0; ix < m; ix++)
+        {
+            if (cnt_NA[ix] == 0) {
+                *some_full = true;
+                break;
+            }
+        }
     }
 }
 
@@ -195,12 +211,13 @@ void count_NAs_by_col
 (
     real_t *restrict arr, int_t m, int_t n,
     int_t *restrict cnt_NA,
-    bool *restrict full_dense, bool *restrict near_dense
+    bool *restrict full_dense, bool *restrict near_dense,
+    bool *restrict some_full
 )
 {
     for (size_t row = 0; row < (size_t)m; row++)
         for (size_t col = 0; col < (size_t)n; col++)
-            cnt_NA[col] += isnan(arr[col + row*n]);
+            cnt_NA[col] += isnan(arr[col + row*n]) != 0;
 
     *full_dense = true;
     for (int_t ix = 0; ix < n; ix++) {
@@ -212,12 +229,24 @@ void count_NAs_by_col
 
     *near_dense = false;
     int_t cnt_rows_w_NA = 0;
-    if (!full_dense)
+    if (!(*full_dense))
     {
         for (int_t ix = 0; ix < n; ix++)
             cnt_rows_w_NA += (cnt_NA[ix] > 0);
         if ((n - cnt_rows_w_NA) >= (int_t)(0.75 * (real_t)n))
             *near_dense = true;
+    }
+
+    *some_full = full_dense;
+    if (!(*full_dense))
+    {
+        for (int_t ix = 0; ix < n; ix++)
+        {
+            if (cnt_NA[ix] == 0) {
+                *some_full = true;
+                break;
+            }
+        }
     }
 }
 
@@ -449,7 +478,7 @@ void taxpy_large(real_t *restrict A, real_t x, real_t *restrict Y, size_t n, int
         else
             #pragma omp parallel for schedule(static) num_threads(nthreads) shared(A, x, Y, n)
             for (size_t_for ix = 0; ix < n; ix++)
-                Y[ix] += x*A[ix];
+                Y[ix] = fma_t(x, A[ix], Y[ix]);
     }
 }
 
@@ -473,105 +502,427 @@ void tscal_large(real_t *restrict arr, real_t alpha, size_t n, int nthreads)
     }
 }
 
-int_t rnorm(real_t *restrict arr, size_t n, int_t seed, int nthreads)
+/* Xoshiro256++ and Xoshiro128++
+   https://prng.di.unimi.it */
+static inline uint64_t splitmix64(const uint64_t seed)
 {
-    #ifndef _FOR_R
-    int_t three = 3;
-    int_t seed_arr[4] = {seed, seed, seed, seed};
-    process_seed_for_larnv(seed_arr);
-    if (n < (size_t)INT_MAX)
-    {
-        int_t n_int_t = (int)n;
-        tlarnv_(&three, seed_arr, &n_int_t, arr);
-    }
+    uint64_t z = (seed + 0x9e3779b97f4a7c15);
+    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9;
+    z = (z ^ (z >> 27)) * 0x94d049bb133111eb;
+    return z ^ (z >> 31);
+}
+#ifndef USE_XOSHIRO128
+static inline uint64_t rotl64(const uint64_t x, const int k) {
+    return (x << k) | (x >> (64 - k));
+}
 
-    else
-    {
-        #if defined(_OPENMP) && \
-                    ( (_OPENMP < 200801)  /* OpenMP < 3.0 */ \
-                      || defined(_WIN32) || defined(_WIN64) \
-                    )
-        long long chunk;
-        #endif
-        int_t chunk_size = (int)INT_MAX;
-        size_t chunks = n / (size_t)INT_MAX;
-        int_t remainder = n - (size_t)INT_MAX * chunks;
-        int_t *restrict mt_seed_arr = (int_t*)malloc(4*nthreads*sizeof(int_t));
-        int_t *restrict thread_seed;
-        if (mt_seed_arr == NULL) return 1;
+static inline uint64_t xoshiro256pp(uint64_t state[4])
+{
+    const uint64_t result = rotl64(state[0] + state[3], 23) + state[0];
+    const uint64_t t = state[1] << 17;
+    state[2] ^= state[0];
+    state[3] ^= state[1];
+    state[1] ^= state[2];
+    state[0] ^= state[3];
+    state[2] ^= t;
+    state[3] = rotl64(state[3], 45);
+    return result;
+}
 
-        #pragma omp parallel for schedule(static, 1) num_threads(nthreads) \
-                shared(arr, three, chunk_size, chunks, seed) \
-                private(thread_seed)
-        for (size_t_for chunk = 0; chunk < chunks; chunk++) {
-            thread_seed = mt_seed_arr + 4*omp_get_thread_num();
-            thread_seed[0] = seed; thread_seed[1] = seed;
-            thread_seed[2] = seed; thread_seed[3] = seed;
-            tlarnv_(&three, thread_seed, &chunk_size,
-                    arr + chunk*(size_t)chunk_size);
+static inline void xoshiro256pp_jump(uint64_t state[4])
+{
+    const uint64_t JUMP[] = { 0x180ec6d33cfd0aba, 0xd5a61266f0c9392c,
+                              0xa9582618e03fc9aa, 0x39abdc4529b1661c };
+    uint64_t s0 = 0;
+    uint64_t s1 = 0;
+    uint64_t s2 = 0;
+    uint64_t s3 = 0;
+    for (int i = 0; i < (int)(sizeof (JUMP) / sizeof (*JUMP)); i++)
+    {
+        for (int b = 0; b < 64; b++)
+        {
+            if (JUMP[i] & UINT64_C(1) << b)
+            {
+                s0 ^= state[0];
+                s1 ^= state[1];
+                s2 ^= state[2];
+                s3 ^= state[3];
+            }
+            xoshiro256pp(state);
         }
-        if (remainder)
-            tlarnv_(&three, seed_arr, &remainder, arr + (size_t)INT_MAX * chunks);
-        free(mt_seed_arr);
     }
-    #else
-    GetRNGstate();
-    for (size_t ix = 0; ix < n; ix++)
-        arr[ix] = norm_rand();
-    PutRNGstate();
+        
+    state[0] = s0;
+    state[1] = s1;
+    state[2] = s2;
+    state[3] = s3;
+}
+#else
+
+static inline uint32_t rotl32(const uint32_t x, const int k) {
+    return (x << k) | (x >> (32 - k));
+}
+
+static inline uint32_t xoshiro128pp(uint32_t state[4])
+{
+    const uint32_t result = rotl32(state[0] + state[3], 7) + state[0];
+    const uint32_t t = state[1] << 9;
+    state[2] ^= state[0];
+    state[3] ^= state[1];
+    state[1] ^= state[2];
+    state[0] ^= state[3];
+    state[2] ^= t;
+    state[3] = rotl32(state[3], 11);
+    return result;
+}
+
+static inline void xoshiro128pp_jump(uint32_t state[4])
+{
+    const uint32_t JUMP[] = { 0x8764000b, 0xf542d2d3,
+                              0x6fa035c3, 0x77f2db5b };
+    uint32_t s0 = 0;
+    uint32_t s1 = 0;
+    uint32_t s2 = 0;
+    uint32_t s3 = 0;
+    for(int i = 0; i < (int)(sizeof (JUMP) / sizeof (*JUMP)); i++)
+    {
+        for(int b = 0; b < 32; b++)
+        {
+            if (JUMP[i] & UINT32_C(1) << b)
+            {
+                s0 ^= state[0];
+                s1 ^= state[1];
+                s2 ^= state[2];
+                s3 ^= state[3];
+            }
+            xoshiro128pp(state);
+        }
+    }
+        
+    state[0] = s0;
+    state[1] = s1;
+    state[2] = s2;
+    state[3] = s3;
+}
+#endif
+
+/* Note: for double precision, this uses the Box-Muller transform
+   with raw form, which is less efficient than the polar form.
+   Nevertheless, from some experiments, this seems to give slightly better
+   end results when using double precision, even though it is slower and
+   loses more numeric precision by boxing to [0, 1] instead of [-1, 1].
+   For single precision, the polar form tended to give better results.
+
+   Note: if generating a uniform random number ~ (0,1), dividing
+   a random draw by the maximum will not result in a uniform
+   distribution, as the upper possible numbers are not evenly-spaced.
+   In these cases, it's necessary to take something up to 2^53 as
+   this is the interval that's evenly-representable. */
+#if defined(USE_DOUBLE) || !(defined(USE_FLOAT) && defined(USE_XOSHIRO128))
+void rnorm_xoshiro(real_t *seq, const size_t n, rng_state_t state[4])
+{
+    #ifndef USE_XOSHIRO128
+    const uint64_t two53_i = (UINT64_C(1) << 53) - UINT64_C(1);
     #endif
+    const double twoPI = 2. * M_PI;
+    uint64_t rnd1, rnd2;
+    #ifdef USE_XOSHIRO128
+    uint32_t rnd11, rnd12, rnd21, rnd22;
+    const uint32_t two21_i = (UINT32_C(1) << 21) - UINT32_C(1);
+    const uint32_t ONE = 1;
+    const bool is_little_endian = *((unsigned char*)&ONE) != 0;
+    #endif
+    double u, v;
+    size_t n_ = n / (size_t)2;
+    for (size_t ix = 0; ix < n_; ix++)
+    {
+        do
+        {
+            #ifdef USE_XOSHIRO128
+            rnd11 = xoshiro128pp(state);
+            rnd12 = xoshiro128pp(state);
+            rnd21 = xoshiro128pp(state);
+            rnd22 = xoshiro128pp(state);
+            #else
+            rnd1 = xoshiro256pp(state);
+            rnd2 = xoshiro256pp(state);
+            #endif
+
+            #if defined(DBL_MANT_DIG) && (DBL_MANT_DIG == 53) &&(FLT_RADIX == 2)
+            #ifdef USE_XOSHIRO128
+            if (is_little_endian) {
+                rnd12 = rnd12 & two21_i;
+                rnd22 = rnd22 & two21_i;
+            } else {
+                rnd11 = rnd11 & two21_i;
+                rnd21 = rnd21 & two21_i;
+            }
+            memcpy((char*)&rnd1, &rnd11, sizeof(uint32_t));
+            memcpy((char*)&rnd1 + sizeof(uint32_t), &rnd12, sizeof(uint32_t));
+            memcpy((char*)&rnd2, &rnd21, sizeof(uint32_t));
+            memcpy((char*)&rnd2 + sizeof(uint32_t), &rnd22, sizeof(uint32_t));
+            u = ldexp((double)rnd1, -53);
+            v = ldexp((double)rnd2, -53);
+            #else
+            u = ldexp((double)(rnd1 & two53_i), -53);
+            v = ldexp((double)(rnd2 & two53_i), -53);
+            #endif
+            #else
+            u = (double)rnd1 / (double)UINT64_MAX;
+            v = (double)rnd2 / (double)UINT64_MAX;
+            #endif
+        }
+        while (u == 0 || v == 0);
+
+        u = sqrt(-2. * log(u));
+        seq[(size_t)2*ix] = (real_t)ldexp(cos(twoPI * v) * u, -7);
+        seq[(size_t)2*ix + (size_t)1] = (real_t)ldexp(sin(twoPI * v) * u, -7);
+    }
+
+    if ((n % (size_t)2) != 0)
+    {
+        do
+        {
+            #ifdef USE_XOSHIRO128
+            rnd11 = xoshiro128pp(state);
+            rnd12 = xoshiro128pp(state);
+            rnd21 = xoshiro128pp(state);
+            rnd22 = xoshiro128pp(state);
+            #else
+            rnd1 = xoshiro256pp(state);
+            rnd2 = xoshiro256pp(state);
+            #endif
+
+            #if defined(DBL_MANT_DIG) && (DBL_MANT_DIG == 53) &&(FLT_RADIX == 2)
+            #ifdef USE_XOSHIRO128
+            if (is_little_endian) {
+                rnd12 = rnd12 & two21_i;
+                rnd22 = rnd22 & two21_i;
+            } else {
+                rnd11 = rnd11 & two21_i;
+                rnd21 = rnd21 & two21_i;
+            }
+            memcpy((char*)&rnd1, &rnd11, sizeof(uint32_t));
+            memcpy((char*)&rnd1 + sizeof(uint32_t), &rnd12, sizeof(uint32_t));
+            memcpy((char*)&rnd2, &rnd21, sizeof(uint32_t));
+            memcpy((char*)&rnd2 + sizeof(uint32_t), &rnd22, sizeof(uint32_t));
+            u = ldexp((double)rnd1, -53);
+            v = ldexp((double)rnd2, -53);
+            #else
+            u = ldexp((double)(rnd1 & two53_i), -53);
+            v = ldexp((double)(rnd2 & two53_i), -53);
+            #endif
+            #else
+            u = (double)rnd1 / (double)UINT64_MAX;
+            v = (double)rnd2 / (double)UINT64_MAX;
+            #endif
+        }
+        while (u == 0 || v == 0);
+
+        u = sqrt(-2. * log(u));
+        seq[n - (size_t)1] = (real_t)ldexp(cos(twoPI * v) * u, -7);
+    }
+}
+#else
+void rnorm_xoshiro(float *seq, const size_t n, rng_state_t state[4])
+{
+    const uint32_t two25_i = (UINT32_C(1) << 25) - UINT32_C(1);
+    const int32_t two24_i = (UINT32_C(1) << 24);
+    uint32_t rnd1, rnd2;
+    #ifndef USE_XOSHIRO128
+    uint64_t rnd0;
+    #endif
+    float u, v, s;
+    size_t n_ = n / (size_t)2;
+    for (size_t ix = 0; ix < n_; ix++)
+    {
+        do
+        {
+            #ifdef USE_XOSHIRO128
+            rnd1 = xoshiro128pp(state);
+            rnd2 = xoshiro128pp(state);
+            #else
+            rnd0 = xoshiro256pp(state);
+            memcpy(&rnd1, (char*)&rnd0, sizeof(uint32_t));
+            memcpy(&rnd2, (char*)&rnd0 + sizeof(uint32_t), sizeof(uint32_t));
+            #endif
+
+            #if defined(FLT_MANT_DIG) && (FLT_MANT_DIG == 24) &&(FLT_RADIX == 2)
+            u = ldexpf((float)((int32_t)(rnd1 & two25_i) - two24_i), -24);
+            v = ldexpf((float)((int32_t)(rnd2 & two25_i) - two24_i), -24);
+            #else
+            u = (float)rnd1 / (float)INT32_MAX;
+            v = (float)rnd2 / (float)INT32_MAX;
+            #endif
+
+            s = square(u) + square(v);
+        }
+        while (s == 0 || s >= 1);
+
+        s = sqrtf((-2.0f / s) * logf(s));
+        seq[(size_t)2*ix] = ldexpf(u * s, -7);
+        seq[(size_t)2*ix + (size_t)1] = ldexpf(v * s, -7);
+    }
+
+    if ((n % (size_t)2) != 0)
+    {
+        do
+        {
+            #ifdef USE_XOSHIRO128
+            rnd1 = xoshiro128pp(state);
+            rnd2 = xoshiro128pp(state);
+            #else
+            rnd0 = xoshiro256pp(state);
+            memcpy(&rnd1, (char*)&rnd0, sizeof(uint32_t));
+            memcpy(&rnd2, (char*)&rnd0 + sizeof(uint32_t), sizeof(uint32_t));
+            #endif
+
+            #if defined(FLT_MANT_DIG) && (FLT_MANT_DIG == 24) &&(FLT_RADIX == 2)
+            u = ldexpf((float)((int32_t)(rnd1 & two25_i) - two24_i), -24);
+            v = ldexpf((float)((int32_t)(rnd2 & two25_i) - two24_i), -24);
+            #else
+            u = (float)rnd1 / (float)INT32_MAX;
+            v = (float)rnd2 / (float)INT32_MAX;
+            #endif
+
+            s = square(u) + square(v);
+        }
+        while (s == 0 || s >= 1);
+
+        s = sqrtf((-2.0f / s) * logf(s));
+        seq[n - (size_t)1] = ldexpf(u * s, -7);
+    }
+}
+#endif
+
+void seed_state(int_t seed, rng_state_t state[4])
+{
+    #ifdef USE_XOSHIRO128
+    uint64_t s1 = splitmix64(seed);
+    uint64_t s2 = splitmix64(s1);
+    memcpy(state, &s1, sizeof(uint64_t));
+    memcpy(&state[2], &s2, sizeof(uint64_t));
+    #else
+    state[0] = splitmix64(seed);
+    state[1] = splitmix64(state[0]);
+    state[2] = splitmix64(state[1]);
+    state[3] = splitmix64(state[2]);
+    #endif
+}
+
+void fill_rnorm_buckets
+(
+    const size_t n_buckets, real_t *arr, const size_t n,
+    real_t **ptr_bucket, size_t *sz_bucket, const size_t BUCKET_SIZE
+)
+{
+    if (n_buckets == 0 || n == 0) return;
+    for (size_t bucket = 0; bucket < n_buckets; bucket++)
+    {
+        ptr_bucket[bucket] = arr;
+        arr += BUCKET_SIZE;
+    }
+    sz_bucket[n_buckets-(size_t)1] = n - BUCKET_SIZE*(n_buckets-(size_t)1);
+}
+
+void rnorm_singlethread(ArraysToFill arrays, rng_state_t state[4])
+{
+    if (arrays.sizeA)
+        rnorm_xoshiro(arrays.A, arrays.sizeA, state);
+    if (arrays.sizeB)
+        rnorm_xoshiro(arrays.B, arrays.sizeB, state);
+}
+
+/* This function generates random normal numbers in parallel, but dividing the
+   arrays to fill into buckets of up to 250k each. It uses the jumping technique
+   from the Xorshiro family in order to ensure that the generated numbers will
+   not overlap. */
+int_t rnorm_parallel(ArraysToFill arrays, int_t seed, int nthreads)
+{
+    #ifdef USE_R_RNG
+    GetRNGstate();
+    for (size_t ix = 0; ix < arrays.sizeA; ix++)
+        arrays.A[ix] = norm_rand();
+    for (size_t ix = 0; ix < arrays.sizeB; ix++)
+        arrays.B[ix] = norm_rand();
+    PutRNGstate();
     return 0;
-}
-
-void rnorm_preserve_seed(real_t *restrict arr, size_t n, int_t seed_arr[4])
-{
-    #ifndef _FOR_R
-    process_seed_for_larnv(seed_arr);
-    int_t three = 3;
-
-    if (n < (size_t)INT_MAX){
-        int_t n_int_t = (int)n;
-        tlarnv_(&three, seed_arr, &n_int_t, arr);
-    }
-
-    else {
-        size_t remainder = n;
-        int_t size_chunk = 0;
-        while (remainder)
-        {
-            if (remainder >= (size_t)INT_MAX)
-                size_chunk = INT_MAX;
-            else
-                size_chunk = remainder;
-            remainder -= (size_t)size_chunk;
-            tlarnv_(&three, seed_arr, &size_chunk, arr);
-            arr += size_chunk;
-        }
-    }
-    #else
-    GetRNGstate();
-    for (size_t ix = 0; ix < n; ix++)
-        arr[ix] = norm_rand();
-    PutRNGstate();
     #endif
-}
-
-void process_seed_for_larnv(int_t seed_arr[4])
-{
-    for (int_t ix = 0; ix < 4; ix++)
+    
+    const size_t BUCKET_SIZE = (size_t)250000;
+    rng_state_t initial_state[4];
+    seed_state(seed, initial_state);
+    if (arrays.sizeA + arrays.sizeB < BUCKET_SIZE)
     {
-        seed_arr[ix] = min2(seed_arr[ix], 4095);
-        seed_arr[ix] = max2(seed_arr[ix], 0);
-        if (ix == 3 && (seed_arr[ix] % 2) == 0)
-        {
-            if ((seed_arr[ix] + 1) <= 4095 && (seed_arr[ix] + 1) >= 0)
-                seed_arr[ix]++;
-            else if ((seed_arr[ix] - 1) <= 4095 && (seed_arr[ix] - 1) >= 0)
-                seed_arr[ix]--;
-            else
-                seed_arr[ix] = 1;
-        }
+        rnorm_singlethread(arrays, initial_state);
+        return 0;
     }
+
+    const size_t buckA  = arrays.sizeA  / BUCKET_SIZE + (arrays.sizeA %  BUCKET_SIZE) != 0;
+    const size_t buckB  = arrays.sizeB  / BUCKET_SIZE + (arrays.sizeB %  BUCKET_SIZE) != 0;
+    const size_t tot_buckets = buckA + buckB;
+
+    real_t **ptr_bucket = (real_t**)malloc(tot_buckets*sizeof(real_t*));
+    size_t *sz_bucket   =  (size_t*)malloc(tot_buckets*sizeof(size_t));
+    rng_state_t *states = (rng_state_t*)malloc((size_t)4*tot_buckets*sizeof(rng_state_t));
+
+    if (ptr_bucket == NULL || sz_bucket == NULL || states == NULL)
+    {
+        free(ptr_bucket);
+        free(sz_bucket);
+        free(states);
+        return 1;
+    }
+
+    for (size_t ix = 0; ix < tot_buckets; ix++)
+        sz_bucket[ix] = BUCKET_SIZE;
+
+    memcpy(states, initial_state, 4*sizeof(rng_state_t));
+    for (size_t ix = 1; ix < tot_buckets; ix++)
+    {
+        memcpy(states + (size_t)4*ix, states + (size_t)4*(ix-(size_t)1), 4*sizeof(rng_state_t));
+        #ifdef USE_XOSHIRO128
+        xoshiro128pp_jump(states + 4*ix);
+        #else
+        xoshiro256pp_jump(states + 4*ix);
+        #endif
+    }
+
+    real_t ** const ptr_bucket_ = ptr_bucket;
+    size_t *  const sz_bucket_  = sz_bucket;
+    
+    fill_rnorm_buckets(
+        buckA, arrays.A, arrays.sizeA,
+        ptr_bucket, sz_bucket, BUCKET_SIZE
+    );
+    ptr_bucket += buckA; sz_bucket += buckA;
+    fill_rnorm_buckets(
+        buckB, arrays.B, arrays.sizeB,
+        ptr_bucket, sz_bucket, BUCKET_SIZE
+    );
+
+    #if defined(_OPENMP) && \
+                ( (_OPENMP < 200801)  /* OpenMP < 3.0 */ \
+                  || defined(_WIN32) || defined(_WIN64) \
+                )
+    long long ix;
+    #endif
+
+    #pragma omp parallel for schedule(static) num_threads(nthreads) \
+            shared(states)
+    for (size_t_for ix = 0; ix < tot_buckets; ix++)
+    {
+        rng_state_t state[] = {states[(size_t)4*ix],
+                               states[(size_t)4*ix + (size_t)1],
+                               states[(size_t)4*ix + (size_t)2],
+                               states[(size_t)4*ix + (size_t)3]};
+        rnorm_xoshiro(ptr_bucket_[ix], sz_bucket_[ix], state);
+    }
+
+    free(ptr_bucket_);
+    free(sz_bucket_);
+    free(states);
+    return 0;
 }
 
 void reduce_mat_sum(real_t *restrict outp, size_t lda, real_t *restrict inp,
@@ -1163,9 +1514,11 @@ void fill_lower_triangle(real_t A[], size_t n, size_t lda)
 
 void print_err_msg(const char *msg)
 {
-    fprintf(stderr, msg);
     #ifndef _FOR_R
+    fprintf(stderr, "%s", msg);
     fflush(stderr);
+    #else
+    fprintf(stderr, msg);
     #endif
 }
 
@@ -1220,7 +1573,7 @@ long double compensated_sum_product(real_t *restrict arr1, real_t *restrict arr2
 
     for (size_t ix = 0; ix < n; ix++)
     {
-        diff = arr1[ix]*arr2[ix] - err;
+        diff = fmal(arr1[ix], arr2[ix], -err);
         temp = res + diff;
         err = (temp - res) - diff;
         res = temp;
@@ -1239,7 +1592,7 @@ void custom_syr(const int_t n, const real_t alpha, const real_t *restrict x, rea
         temp = alpha*x[i];
         Arow = A + (size_t)i*(size_t)lda;
         for (int j = i; j < n; j++)
-            Arow[j] += temp*x[j];
+            Arow[j] = fma_t(temp, x[j], Arow[j]);
     }
 }
 #endif
@@ -1304,7 +1657,6 @@ SEXP wrapper_GELSD(void *data)
             data_->S, data_->rcond, data_->rank,
             data_->work, data_->lwork, data_->iwork,
             data_->info);
-    GELSD_free_inputs = false;
     return R_NilValue;
 }
 
@@ -1315,7 +1667,16 @@ void clean_after_GELSD(void *cdata, Rboolean jump)
         PointersToFree *cdata_ = (PointersToFree*)cdata;
         for (size_t ix = 0; ix < cdata_->n_pointers; ix++)
             free(cdata_->pointers[ix]);
+        GELSD_free_inputs = false;
     }
-    GELSD_free_inputs = false;
 }
 #endif
+
+bool get_has_openmp(void)
+{
+    #ifdef _OPENMP
+    return true;
+    #else
+    return false;
+    #endif
+}

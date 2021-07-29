@@ -786,19 +786,29 @@ void factors_closed_form
     }
 
     /* If the input is sparse and it's assumed that the non-present
-       entries are zero, with no missing values, it's still possible
-       to use the precomputed and pre-factorized matrix. */
-    else if (NA_as_zero && weight == NULL && !nonneg &&
-             Xa_dense == NULL && precomputedBtBchol != NULL &&
-             l1_lam == 0. && l1_lam_last == 0.)
+       entries are zero, with no missing values, or if it is full dense,
+       it's still possible to use the precomputed and pre-factorized matrix. */
+    else if ( (  (Xa_dense == NULL && NA_as_zero) ||
+                 (Xa_dense != NULL && full_dense)    ) &&
+             weight == NULL && !nonneg &&
+             precomputedBtBchol != NULL && l1_lam == 0. && l1_lam_last == 0.)
     {
         set_to_zero(a_vec, k);
-        tgemv_dense_sp(n, k,
-                       1., B, (size_t)ldb,
-                       ixB, Xa, nnz,
-                       a_vec);
-        if (bias_BtX != NULL)
-            cblas_taxpy(k, 1./multiplier_bias_BtX, bias_BtX, 1, a_vec, 1);
+        if (Xa_dense == NULL) {
+            tgemv_dense_sp(n, k,
+                           1., B, (size_t)ldb,
+                           ixB, Xa, nnz,
+                           a_vec);
+            if (bias_BtX != NULL)
+                cblas_taxpy(k, 1./multiplier_bias_BtX, bias_BtX, 1, a_vec, 1);
+        }
+        else {
+            cblas_tgemv(CblasRowMajor, CblasTrans,
+                        n, k,
+                        1., B, ldb,
+                        Xa_dense, 1,
+                        0., a_vec, 1);
+        }
         tpotrs_(&lo, &k, &one,
                 precomputedBtBchol, &k,
                 a_vec, &k,
@@ -1896,7 +1906,7 @@ real_t wrapper_fun_grad_Bdense
 
 size_t buffer_size_optimizeA
 (
-    size_t n, bool full_dense, bool near_dense, bool do_B,
+    size_t n, bool full_dense, bool near_dense, bool some_full, bool do_B,
     bool has_dense, bool has_weights, bool NA_as_zero,
     bool nonneg, bool has_l1,
     size_t k, size_t nthreads,
@@ -1909,7 +1919,7 @@ size_t buffer_size_optimizeA
     {
         return max2(
                 buffer_size_optimizeA(
-                        n, full_dense, near_dense, do_B,
+                        n, full_dense, near_dense, some_full, do_B,
                         has_dense, has_weights, NA_as_zero,
                         nonneg, has_l1,
                         k, nthreads,
@@ -1918,7 +1928,7 @@ size_t buffer_size_optimizeA
                         true, false
                 ),
                 buffer_size_optimizeA(
-                    n, full_dense, near_dense, do_B,
+                    n, full_dense, near_dense, some_full, do_B,
                     has_dense, has_weights, NA_as_zero,
                     nonneg, has_l1,
                     k, nthreads,
@@ -1995,6 +2005,10 @@ size_t buffer_size_optimizeA
         }
         if (do_B && has_weights) {
             buffer_size += n * nthreads;
+        }
+        if (!has_weights) {
+            if (some_full && !nonneg && !has_l1)
+                buffer_size += square(k);
         }
         size_t size_thread_buffer = square(k) + (use_cg? (3*k) : 0);
         if (nonneg)
@@ -2091,13 +2105,13 @@ void optimizeA
     real_t *restrict B, int_t ldb,
     int_t m, int_t n, int_t k,
     size_t Xcsr_p[], int_t Xcsr_i[], real_t *restrict Xcsr,
-    real_t *restrict Xfull, int_t ldX, bool full_dense, bool near_dense,
+    real_t *restrict Xfull, int_t ldX,
+    bool full_dense, bool near_dense, bool some_full,
     int_t cnt_NA[], real_t *restrict weight, bool NA_as_zero,
     real_t lam, real_t lam_last,
     real_t l1_lam, real_t l1_lam_last,
     bool scale_lam, bool scale_bias_const, real_t *restrict wsumA,
-    bool do_B, bool is_first_iter,
-    int nthreads,
+    bool do_B, int nthreads,
     bool use_cg, int_t max_cg_steps,
     bool nonneg, int_t max_cd_steps,
     real_t *restrict bias_restore,
@@ -2267,7 +2281,7 @@ void optimizeA
                            nthreads, use_cg, nonneg, max_cd_steps) \
                     firstprivate(bufferX)
             for (size_t_for ix = 0; ix < (size_t)m; ix++)
-                if (cnt_NA[ix] > 0)
+                if (cnt_NA[ix])
                 {
                     if (cnt_NA[ix] == n) {
                         set_to_zero(A + ix*(size_t)lda, k);
@@ -2343,9 +2357,9 @@ void optimizeA
             bufferW = buffer_real_t;
             buffer_real_t += (size_t)n * (size_t)nthreads;
         }
-        real_t *restrict buffer_remainder = buffer_real_t;
 
 
+        real_t *restrict bufferBtBchol = NULL;
         if (bufferBtB != NULL)
         {
             cblas_tsyrk(CblasRowMajor, CblasUpper, CblasTrans,
@@ -2357,9 +2371,24 @@ void optimizeA
                 copy_arr(bufferBtB, precomputedBtB, square(k));
                 *filled_BtB = true;
             }
-            add_to_diag(bufferBtB, lam, k);
-            if (lam_last != lam) bufferBtB[square(k)-1] += (lam_last - lam);
+            add_to_diag(bufferBtB, scale_lam? (lam*(real_t)n) : (lam), k);
+            if (lam_last != lam)
+            {
+                if (!scale_lam)
+                    bufferBtB[square(k)-1] += (lam_last - lam);
+                else
+                    bufferBtB[square(k)-1] += (lam_last-lam)*(real_t)n;
+            }
+
+            if (some_full && !nonneg && !l1_lam && !l1_lam_last)
+            {
+                bufferBtBchol = buffer_real_t;
+                buffer_real_t += square(k);
+                copy_arr(bufferBtB, bufferBtBchol, square(k));
+                tpotrf_(&uplo, &k, bufferBtBchol, &k, &ignore);
+            }
         }
+        real_t *restrict buffer_remainder = buffer_real_t;
 
         int nthreads_restore = 1;
         set_blas_threads(1, &nthreads_restore);
@@ -2371,7 +2400,8 @@ void optimizeA
                        lam, lam_last, l1_lam, l1_lam_last, \
                        scale_lam, scale_bias_const, wsumA, \
                        bufferBtB, cnt_NA, buffer_remainder, \
-                       use_cg, max_cg_steps, nonneg, max_cd_steps) \
+                       use_cg, max_cg_steps, nonneg, max_cd_steps, \
+                       bufferBtBchol) \
                 firstprivate(bufferX, bufferW)
         for (size_t_for ix = 0; ix < (size_t)m; ix++)
         {
@@ -2410,7 +2440,7 @@ void optimizeA
                 (real_t*)NULL,
                 bufferBtB, cnt_NA[ix], k,
                 true, false, 1., n,
-                (real_t*)NULL, false,
+                bufferBtBchol, false,
                 use_cg, max_cg_steps,
                 nonneg, max_cd_steps,
                 (real_t*)NULL, (real_t*)NULL, 0., 1.,
@@ -2516,13 +2546,6 @@ void optimizeA
        This is the expected case for most situations. */
     else
     {
-        if (is_first_iter)
-        {
-            set_to_zero_(A, (size_t)m*(size_t)lda - (size_t)(lda-k), nthreads);
-            if (use_cg && bias_restore != NULL)
-                cblas_tcopy(m, bias_restore, 1, A + (k-1), lda);
-        }
-
         /* When NAs are treated as zeros, can use a precomputed t(B)*B */
         real_t *restrict bufferBtB = NULL;
         bool add_diag_to_BtB = !(use_cg && Xfull == NULL && NA_as_zero) &&
@@ -2620,7 +2643,7 @@ void optimizeA_implicit
     size_t Xcsr_p[], int_t Xcsr_i[], real_t *restrict Xcsr,
     real_t lam, real_t l1_lam,
     int nthreads,
-    bool use_cg, int_t max_cg_steps, bool force_set_to_zero,
+    bool use_cg, int_t max_cg_steps,
     bool nonneg, int_t max_cd_steps,
     real_t *restrict precomputedBtB, /* <- will be calculated if not passed */
     real_t *restrict buffer_real_t
@@ -2638,10 +2661,10 @@ void optimizeA_implicit
                 k, n,
                 1., B, ldb,
                 0., precomputedBtB, k);
-    if (!use_cg)
+    if (!use_cg) {
         add_to_diag(precomputedBtB, lam, k);
-    if (!use_cg || force_set_to_zero)
         set_to_zero_(A, (size_t)m*(size_t)k - (lda-(size_t)k), nthreads);
+    }
     size_t size_buffer = use_cg? (3 * k) : (square(k));
     if (nonneg)
         size_buffer += k;
@@ -2696,16 +2719,18 @@ void optimizeA_implicit
     set_blas_threads(nthreads_restore, (int*)NULL);
 }
 
-void calc_mean_and_center
+int_t calc_mean_and_center
 (
-    int_t ixA[], int_t ixB[], real_t *restrict X, size_t nnz,
-    real_t *restrict Xfull, real_t *restrict Xtrans,
+    int_t ixA[], int_t ixB[], real_t *restrict *X_, size_t nnz,
+    real_t *restrict *Xfull_, real_t *restrict Xtrans,
     int_t m, int_t n,
     size_t Xcsr_p[], int_t Xcsr_i[], real_t *restrict Xcsr,
     size_t Xcsc_p[], int_t Xcsc_i[], real_t *restrict Xcsc,
     real_t *restrict weight,
     bool NA_as_zero, bool nonneg, bool center, int nthreads,
-    real_t *restrict glob_mean
+    real_t *restrict glob_mean,
+    bool *modified_X, bool *modified_Xfull,
+    bool allow_overwrite_X
 )
 {
     #if defined(_OPENMP) && \
@@ -2714,14 +2739,20 @@ void calc_mean_and_center
                 )
     long long ix;
     #endif
+    if (!allow_overwrite_X) {
+        *modified_X = false;
+        *modified_Xfull = false;
+    }
     if (glob_mean == NULL)
-        return;
+        return 0;
     if (!center)
     {
         *glob_mean = 0;
-        return;
+        return 0;
     }
 
+    real_t *restrict X = (X_ == NULL)? NULL : (*X_);
+    real_t *restrict Xfull = (Xfull_ == NULL)? NULL : (*Xfull_);
     size_t m_by_n = (Xfull == NULL)? 0 : ((size_t)m * (size_t)n);
 
     double xsum = 0.;
@@ -2875,6 +2906,15 @@ void calc_mean_and_center
     if (*glob_mean != 0 && !(Xfull == NULL && NA_as_zero))
     {
         if (Xfull != NULL) {
+
+            if (!allow_overwrite_X) {
+                Xfull = (real_t*)malloc(m_by_n*sizeof(real_t));
+                if (Xfull == NULL) return 1;
+                copy_arr_(*Xfull_, Xfull, m_by_n, nthreads);
+                *Xfull_ = Xfull;
+                *modified_Xfull = true;
+            }
+
             for (size_t_for ix = 0; ix < m_by_n; ix++)
                 Xfull[ix] = isnan(Xfull[ix])?
                               (NAN_) : (Xfull[ix] - (*glob_mean));
@@ -2888,11 +2928,22 @@ void calc_mean_and_center
                 Xcsr[ix] -= *glob_mean;
                 Xcsc[ix] -= *glob_mean;
             }
-        } else {
+        } else if (X != NULL && nnz) {
+
+            if (!allow_overwrite_X) {
+                X = (real_t*)malloc(nnz*sizeof(real_t));
+                if (X == NULL) return 1;
+                copy_arr_(*X_, X, nnz, nthreads);
+                *X_ = X;
+                *modified_X = true;
+            }
+
             for (size_t_for ix = 0; ix < nnz; ix++)
                 X[ix] -= *glob_mean;
         }
     }
+
+    return 0;
 }
 
 /* TODO: factor out this function */
@@ -2906,24 +2957,33 @@ int_t initialize_biases
     real_t *restrict scaling_biasA, real_t *restrict scaling_biasB,
     int_t m, int_t n,
     int_t m_bias, int_t n_bias,
-    int_t ixA[], int_t ixB[], real_t *restrict X, size_t nnz,
-    real_t *restrict Xfull, real_t *restrict Xtrans,
+    int_t ixA[], int_t ixB[], real_t *restrict *X_, size_t nnz,
+    real_t *restrict *Xfull_, real_t *restrict Xtrans,
     size_t Xcsr_p[], int_t Xcsr_i[], real_t *restrict Xcsr,
     size_t Xcsc_p[], int_t Xcsc_i[], real_t *restrict Xcsc,
     real_t *restrict weight, real_t *restrict Wtrans,
     real_t *restrict weightR, real_t *restrict weightC,
     bool nonneg,
-    int nthreads
+    int nthreads,
+    bool *modified_X, bool *modified_Xfull,
+    bool allow_overwrite_X
 )
 {
     int_t retval = 0;
-    size_t m_by_n = (Xfull == NULL)? (size_t)0 : ((size_t)m * (size_t)n);
     #if defined(_OPENMP) && \
                 ( (_OPENMP < 200801)  /* OpenMP < 3.0 */ \
                   || defined(_WIN32) || defined(_WIN64) \
                 )
     long long row, col;
     #endif
+
+    if (!allow_overwrite_X) {
+        *modified_X = false;
+        *modified_Xfull = false;
+    }
+    real_t *restrict X = (X_ == NULL)? NULL : (*X_);
+    real_t *restrict Xfull = (Xfull_ == NULL)? NULL : (*Xfull_);
+    size_t m_by_n = (Xfull == NULL)? (size_t)0 : ((size_t)m * (size_t)n);
 
     size_t *restrict buffer_cnt = NULL;
     double *restrict buffer_w = NULL;
@@ -2955,15 +3015,21 @@ int_t initialize_biases
     if (center)
     {
         calc_mean_and_center(
-            ixA, ixB, X, nnz,
-            Xfull, Xtrans,
+            ixA, ixB, &X, nnz,
+            &Xfull, Xtrans,
             m, n,
             Xcsr_p, Xcsr_i, Xcsr,
             Xcsc_p, Xcsc_i, Xcsc,
             weight,
             false, nonneg, center, nthreads,
-            glob_mean
+            glob_mean, modified_X, modified_Xfull,
+            allow_overwrite_X
         );
+
+        if (!allow_overwrite_X) {
+            if (*modified_X && X != NULL) *X_ = X;
+            if (*modified_Xfull && Xfull != NULL) *Xfull_ = Xfull;
+        }
     }
 
     /* If not centering, might still need to know the number of non-missing
@@ -4144,11 +4210,11 @@ int_t initialize_biases_twosided
 int_t center_by_cols
 (
     real_t *restrict col_means,
-    real_t *restrict Xfull, int_t m, int_t n,
-    int_t ixA[], int_t ixB[], real_t *restrict X, size_t nnz,
+    real_t *restrict *Xfull_, int_t m, int_t n,
+    int_t ixA[], int_t ixB[], real_t *restrict *X_, size_t nnz,
     size_t Xcsr_p[], int_t Xcsr_i[], real_t *restrict Xcsr,
     size_t Xcsc_p[], int_t Xcsc_i[], real_t *restrict Xcsc,
-    int nthreads
+    int nthreads, bool *modified_X, bool *modified_Xfull
 )
 {
     #if defined(_OPENMP) && \
@@ -4157,10 +4223,14 @@ int_t center_by_cols
                 )
     long long ix, ib;
     #endif
+    int_t retval = 0;
+    real_t *restrict X = (X_ == NULL)? NULL : (*X_);
+    real_t *restrict Xfull = (Xfull_ == NULL)? NULL : (*Xfull_);
+
     int_t *restrict cnt_by_col = NULL;
     if (Xfull != NULL || Xcsc == NULL) {
         cnt_by_col = (int_t*)calloc(n, sizeof(int_t));
-        if (cnt_by_col == NULL) return 1;
+        if (cnt_by_col == NULL) goto throw_oom;
     }
     set_to_zero(col_means, n);
 
@@ -4214,6 +4284,12 @@ int_t center_by_cols
 
     if (Xfull != NULL)
     {
+        Xfull = (real_t*)malloc((size_t)m*(size_t)n*sizeof(real_t));
+        if (Xfull == NULL) goto throw_oom;
+        copy_arr_(*Xfull_, Xfull, ((size_t)m*(size_t)n), nthreads);
+        *Xfull_ = Xfull;
+        *modified_Xfull = true;
+
         for (size_t row = 0; row < (size_t)m; row++)
             for (size_t col = 0; col < (size_t)n; col++)
                 Xfull[col + row*(size_t)n] -= col_means[col];
@@ -4232,18 +4308,19 @@ int_t center_by_cols
 
         if (Xcsr != NULL)
         {
-            if (X != NULL)
-                for (size_t ix = 0; ix < nnz; ix++)
-                    Xcsr[ix] -= col_means[Xcsr_i[ix]];
-            else
-                for (size_t ia = 0; ia < (size_t)m; ia++)
-                    for (size_t ix = Xcsr_p[ia]; ix < Xcsr_p[ia+(size_t)1];ix++)
-                        Xcsr[ix] -= col_means[Xcsr_i[ix]];
+            for (size_t ix = 0; ix < Xcsr_p[m-1]; ix++)
+                Xcsr[ix] -= col_means[Xcsr_i[ix]];
         }
     }
 
     else
     {
+        X = (real_t*)malloc(nnz*sizeof(real_t));
+        if (X == NULL) goto throw_oom;
+        copy_arr_(*X_, X, nnz, nthreads);
+        *X_ = X;
+        *modified_X = true;
+
         nthreads = cap_to_4(nthreads);
         #pragma omp parallel for schedule(static) num_threads(nthreads) \
                 shared(nnz, X, col_means, ixB)
@@ -4252,8 +4329,12 @@ int_t center_by_cols
 
     }
 
-    free(cnt_by_col);
-    return 0;
+    cleanup:
+        free(cnt_by_col);
+        return retval;
+    throw_oom:
+        retval = 1;
+        goto cleanup;
 }
 
 bool check_sparse_indices
@@ -4672,18 +4753,22 @@ int_t fit_most_popular
     real_t *restrict wsumA = NULL;
     real_t *restrict wsumB = NULL;
 
+    bool free_X = false;
+    bool free_Xfull = false;
+
     if (NA_as_zero && Xfull == NULL)
     {
         if (glob_mean != NULL)
             calc_mean_and_center(
-                ixA, ixB, X, nnz,
-                (real_t*)NULL, (real_t*)NULL,
+                ixA, ixB, &X, nnz,
+                (real_t**)NULL, (real_t*)NULL,
                 m, n,
                 (size_t*)NULL, (int_t*)NULL, (real_t*)NULL,
                 (size_t*)NULL, (int_t*)NULL, (real_t*)NULL,
                 weight,
                 NA_as_zero, nonneg, true, nthreads,
-                glob_mean
+                glob_mean, &free_X, &free_Xfull,
+                false
             );
 
         if (biasA != NULL)
@@ -4807,6 +4892,15 @@ int_t fit_most_popular
 
     if (implicit && biasA != NULL)
     {
+        if (!free_X)
+        {
+            real_t *restrict temp = (real_t*)malloc(nnz*sizeof(real_t));
+            if (temp == NULL) goto throw_oom;
+            copy_arr_(X, temp, nnz, nthreads);
+            X = temp;
+            free_X = true;
+        }
+
         for (size_t ix = 0; ix < nnz; ix++)
             X[ix] += 1;
         if (apply_log_transf)
@@ -4864,21 +4958,24 @@ int_t fit_most_popular
         goto cleanup;
     }
 
-    return fit_most_popular_internal(
+    retval = fit_most_popular_internal(
         biasA, biasB,
         glob_mean, glob_mean != NULL,
         lam_user, lam_item,
         scale_lam, scale_bias_const,
         alpha,
         m, n,
-        ixA, ixB, X, nnz,
-        Xfull,
+        ixA, ixB, &X, nnz,
+        &Xfull,
         weight,
         implicit, adjust_weight, apply_log_transf,
         nonneg,
         w_main_multiplier,
-        nthreads
+        nthreads,
+        &free_X, &free_Xfull,
+        free_X || free_Xfull
     );
+    if (retval == 1) goto throw_oom;
 
     cleanup:
         free(Xcsr_p);
@@ -4892,6 +4989,10 @@ int_t fit_most_popular
         free(ones);
         free(wsumA);
         free(wsumB);
+        if (free_X)
+            free(X);
+        if (free_Xfull)
+            free(Xfull);
     return retval;
     throw_oom:
         retval = 1;
@@ -4909,13 +5010,15 @@ int_t fit_most_popular_internal
     bool scale_lam, bool scale_bias_const,
     real_t alpha,
     int_t m, int_t n,
-    int_t ixA[], int_t ixB[], real_t *restrict X, size_t nnz,
-    real_t *restrict Xfull,
+    int_t ixA[], int_t ixB[], real_t *restrict *X_, size_t nnz,
+    real_t *restrict *Xfull_,
     real_t *restrict weight,
     bool implicit, bool adjust_weight, bool apply_log_transf,
     bool nonneg,
     real_t *restrict w_main_multiplier,
-    int nthreads
+    int nthreads,
+    bool *free_X, bool *free_Xfull,
+    bool allow_overwrite_X
 )
 {
     int_t retval = 0;
@@ -4925,6 +5028,8 @@ int_t fit_most_popular_internal
     real_t *restrict sum_by_row = NULL;
     int_t maxiter = 5;
 
+    real_t *restrict X = (X_ == NULL)? NULL : (*X_);
+    real_t *restrict Xfull = (Xfull_ == NULL)? NULL : (*Xfull_);
 
     if (implicit)
     {
@@ -4934,15 +5039,36 @@ int_t fit_most_popular_internal
 
         if (apply_log_transf)
         {
-            if (Xfull != NULL) {
-                for (size_t row = 0; row < (size_t)m; row++)
-                    for (size_t col = 0; col < (size_t)n; col++)
-                        Xfull[col + row*(size_t)n]
-                            =
-                        log_t(Xfull[col + row*(size_t)n]);
+            if (Xfull != NULL)
+            {
+                size_t m_by_n = (size_t)m * (size_t)n;
+                
+                if (!allow_overwrite_X)
+                {
+                    Xfull = (real_t*)malloc(m_by_n*sizeof(real_t));
+                    if (Xfull == NULL) goto throw_oom;
+                    copy_arr_(*Xfull_, Xfull, m_by_n, nthreads);
+                    *Xfull_ = Xfull;
+                    *free_Xfull = true;
+                    allow_overwrite_X = true;
+                }
+
+                for (size_t ix = 0; ix < m_by_n; ix++)
+                    Xfull[ix] = log_t(Xfull[ix]);
             }
 
-            else {
+            else
+            {
+                if (!allow_overwrite_X)
+                {
+                    X = (real_t*)malloc(nnz*sizeof(real_t));
+                    if (X == NULL) goto throw_oom;
+                    copy_arr_(*X_, X, nnz, nthreads);
+                    *X_ = X;
+                    *free_X = true;
+                    allow_overwrite_X = true;
+                }
+
                 for (size_t ix = 0; ix < nnz; ix++)
                     X[ix] = log_t(X[ix]);
             }
@@ -5012,15 +5138,21 @@ int_t fit_most_popular_internal
         (real_t*)NULL, (real_t*)NULL,
         m, n,
         m, n,
-        ixA, ixB, X, nnz,
-        Xfull, (real_t*)NULL,
+        ixA, ixB, &X, nnz,
+        &Xfull, (real_t*)NULL,
         (size_t*)NULL, (int_t*)NULL, (real_t*)NULL,
         (size_t*)NULL, (int_t*)NULL, (real_t*)NULL,
         weight, (real_t*)NULL,
         (real_t*)NULL, (real_t*)NULL,
         nonneg,
-        nthreads
+        nthreads,
+        free_X, free_Xfull,
+        allow_overwrite_X
     );
+    if (!allow_overwrite_X) {
+        if (*free_X && X != NULL) *X_ = X;
+        if (*free_Xfull && Xfull != NULL) *Xfull_ = Xfull;
+    }
     if (retval == 1) goto throw_oom;
 
 

@@ -405,8 +405,7 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 <p>Now fitting the classical matrix factorization model, with global mean centering, user/item biases, L2 regularization which scales with the number of ratings for each user/item, and no side information. This is the model explained in the earlier section: <span class="math display">\[
 \mathbf{X} \approx \mathbf{A} \mathbf{B}^T + \mu + \mathbf{b}_A + \mathbf{b}_B
 \]</span></p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><a class="sourceLine" id="cb3-1" data-line-number="1"><span class="kw">set.seed</span>(<span class="dv">1</span>)</a>
-<a class="sourceLine" id="cb3-2" data-line-number="2">model.classic &lt;-<span class="st"> </span><span class="kw">CMF</span>(X_train, <span class="dt">k=</span><span class="dv">25</span>, <span class="dt">lambda=</span><span class="fl">0.1</span>, <span class="dt">scale_lam=</span><span class="ot">TRUE</span>, <span class="dt">verbose=</span><span class="ot">FALSE</span>)</a></code></pre></div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><a class="sourceLine" id="cb3-1" data-line-number="1">model.classic &lt;-<span class="st"> </span><span class="kw">CMF</span>(X_train, <span class="dt">k=</span><span class="dv">25</span>, <span class="dt">lambda=</span><span class="fl">0.1</span>, <span class="dt">scale_lam=</span><span class="ot">TRUE</span>, <span class="dt">verbose=</span><span class="ot">FALSE</span>)</a></code></pre></div>
 <div id="how-good-is-it" class="section level4">
 <h4>How good is it?</h4>
 <p>The most typical way of evaluating the quality of these models is by evaluating the error that they have at predicting known entries, which here will be evaluated against the test data that was set apart earlier. The evaluation here will be done in terms of mean squared error (RMSE).</p>
@@ -441,13 +440,12 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 <li><span class="math inline">\(\mathbf{I}_x\)</span> is a binary matrix indicating whether each entry of <span class="math inline">\(\mathbf{X}\)</span> is observed or missing.</li>
 <li><span class="math inline">\(\mathbf{A}_i\)</span> and <span class="math inline">\(\mathbf{B}_i\)</span> are model matrices which are not directly used for <span class="math inline">\(\mathbf{X}\)</span>, and not used in the prediction formula, but are still estimated in this new multi-objective optimization objective.</li>
 </ul>
-<div class="sourceCode" id="cb6"><pre class="sourceCode r"><code class="sourceCode r"><a class="sourceLine" id="cb6-1" data-line-number="1"><span class="kw">set.seed</span>(<span class="dv">1</span>)</a>
-<a class="sourceLine" id="cb6-2" data-line-number="2">model.improved &lt;-<span class="st"> </span><span class="kw">CMF</span>(X_train, <span class="dt">k=</span><span class="dv">25</span>, <span class="dt">lambda=</span><span class="fl">0.1</span>, <span class="dt">scale_lam=</span><span class="ot">TRUE</span>,</a>
-<a class="sourceLine" id="cb6-3" data-line-number="3">                      <span class="dt">add_implicit_features=</span><span class="ot">TRUE</span>, <span class="dt">w_main=</span><span class="fl">0.75</span>, <span class="dt">w_implicit=</span><span class="fl">0.25</span>,</a>
-<a class="sourceLine" id="cb6-4" data-line-number="4">                      <span class="dt">use_cg=</span><span class="ot">FALSE</span>, <span class="dt">niter=</span><span class="dv">30</span>, <span class="dt">verbose=</span><span class="ot">FALSE</span>)</a>
-<a class="sourceLine" id="cb6-5" data-line-number="5">pred_improved &lt;-<span class="st"> </span><span class="kw">predict</span>(model.improved, X_test)</a>
-<a class="sourceLine" id="cb6-6" data-line-number="6"><span class="kw">print_rmse</span>(X_test, pred_improved, <span class="st">&quot;improved classic model&quot;</span>)</a></code></pre></div>
-<pre><code>#&gt; RMSE for improved classic model is: 0.9129</code></pre>
+<div class="sourceCode" id="cb6"><pre class="sourceCode r"><code class="sourceCode r"><a class="sourceLine" id="cb6-1" data-line-number="1">model.improved &lt;-<span class="st"> </span><span class="kw">CMF</span>(X_train, <span class="dt">k=</span><span class="dv">25</span>, <span class="dt">lambda=</span><span class="fl">0.1</span>, <span class="dt">scale_lam=</span><span class="ot">TRUE</span>,</a>
+<a class="sourceLine" id="cb6-2" data-line-number="2">                      <span class="dt">add_implicit_features=</span><span class="ot">TRUE</span>, <span class="dt">w_main=</span><span class="fl">0.75</span>, <span class="dt">w_implicit=</span><span class="fl">0.25</span>,</a>
+<a class="sourceLine" id="cb6-3" data-line-number="3">                      <span class="dt">use_cg=</span><span class="ot">FALSE</span>, <span class="dt">niter=</span><span class="dv">30</span>, <span class="dt">verbose=</span><span class="ot">FALSE</span>)</a>
+<a class="sourceLine" id="cb6-4" data-line-number="4">pred_improved &lt;-<span class="st"> </span><span class="kw">predict</span>(model.improved, X_test)</a>
+<a class="sourceLine" id="cb6-5" data-line-number="5"><span class="kw">print_rmse</span>(X_test, pred_improved, <span class="st">&quot;improved classic model&quot;</span>)</a></code></pre></div>
+<pre><code>#&gt; RMSE for improved classic model is: 0.9128</code></pre>
 </div>
 </div>
 <div id="adding-side-information" class="section level2">
@@ -495,15 +493,14 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 <a class="sourceLine" id="cb8-21" data-line-number="21"><span class="kw">cat</span>(<span class="kw">dim</span>(I), <span class="st">&quot;</span><span class="ch">\n</span><span class="st">&quot;</span>)</a>
 <a class="sourceLine" id="cb8-22" data-line-number="22"><span class="co">#&gt; 1664 21</span></a></code></pre></div>
 <p>Now fitting the model:</p>
-<div class="sourceCode" id="cb9"><pre class="sourceCode r"><code class="sourceCode r"><a class="sourceLine" id="cb9-1" data-line-number="1"><span class="kw">set.seed</span>(<span class="dv">1</span>)</a>
-<a class="sourceLine" id="cb9-2" data-line-number="2">model.w.sideinfo &lt;-<span class="st"> </span><span class="kw">CMF</span>(X_train, <span class="dt">U=</span>U, <span class="dt">I=</span>I, <span class="dt">NA_as_zero_item=</span><span class="ot">TRUE</span>,</a>
-<a class="sourceLine" id="cb9-3" data-line-number="3">                        <span class="dt">k=</span><span class="dv">25</span>, <span class="dt">lambda=</span><span class="fl">0.1</span>, <span class="dt">scale_lam=</span><span class="ot">TRUE</span>,</a>
-<a class="sourceLine" id="cb9-4" data-line-number="4">                        <span class="dt">niter=</span><span class="dv">30</span>, <span class="dt">use_cg=</span><span class="ot">FALSE</span>, <span class="dt">include_all_X=</span><span class="ot">FALSE</span>,</a>
-<a class="sourceLine" id="cb9-5" data-line-number="5">                        <span class="dt">w_main=</span><span class="fl">0.75</span>, <span class="dt">w_user=</span><span class="fl">0.5</span>, <span class="dt">w_item=</span><span class="fl">0.5</span>, <span class="dt">w_implicit=</span><span class="fl">0.5</span>,</a>
-<a class="sourceLine" id="cb9-6" data-line-number="6">                        <span class="dt">verbose=</span><span class="ot">FALSE</span>)</a>
-<a class="sourceLine" id="cb9-7" data-line-number="7">pred_side_info &lt;-<span class="st"> </span><span class="kw">predict</span>(model.w.sideinfo, X_test)</a>
-<a class="sourceLine" id="cb9-8" data-line-number="8"><span class="kw">print_rmse</span>(X_test, pred_side_info, <span class="st">&quot;model with side info&quot;</span>)</a></code></pre></div>
-<pre><code>#&gt; RMSE for model with side info is: 0.9105</code></pre>
+<div class="sourceCode" id="cb9"><pre class="sourceCode r"><code class="sourceCode r"><a class="sourceLine" id="cb9-1" data-line-number="1">model.w.sideinfo &lt;-<span class="st"> </span><span class="kw">CMF</span>(X_train, <span class="dt">U=</span>U, <span class="dt">I=</span>I, <span class="dt">NA_as_zero_item=</span><span class="ot">TRUE</span>,</a>
+<a class="sourceLine" id="cb9-2" data-line-number="2">                        <span class="dt">k=</span><span class="dv">25</span>, <span class="dt">lambda=</span><span class="fl">0.1</span>, <span class="dt">scale_lam=</span><span class="ot">TRUE</span>,</a>
+<a class="sourceLine" id="cb9-3" data-line-number="3">                        <span class="dt">niter=</span><span class="dv">30</span>, <span class="dt">use_cg=</span><span class="ot">FALSE</span>, <span class="dt">include_all_X=</span><span class="ot">FALSE</span>,</a>
+<a class="sourceLine" id="cb9-4" data-line-number="4">                        <span class="dt">w_main=</span><span class="fl">0.75</span>, <span class="dt">w_user=</span><span class="fl">0.5</span>, <span class="dt">w_item=</span><span class="fl">0.5</span>, <span class="dt">w_implicit=</span><span class="fl">0.5</span>,</a>
+<a class="sourceLine" id="cb9-5" data-line-number="5">                        <span class="dt">verbose=</span><span class="ot">FALSE</span>)</a>
+<a class="sourceLine" id="cb9-6" data-line-number="6">pred_side_info &lt;-<span class="st"> </span><span class="kw">predict</span>(model.w.sideinfo, X_test)</a>
+<a class="sourceLine" id="cb9-7" data-line-number="7"><span class="kw">print_rmse</span>(X_test, pred_side_info, <span class="st">&quot;model with side info&quot;</span>)</a></code></pre></div>
+<pre><code>#&gt; RMSE for model with side info is: 0.9099</code></pre>
 <hr />
 <p>Summary:</p>
 <div class="sourceCode" id="cb11"><pre class="sourceCode r"><code class="sourceCode r"><a class="sourceLine" id="cb11-1" data-line-number="1"><span class="kw">library</span>(kableExtra)</a>
@@ -546,7 +543,7 @@ NonPersonalized
 ClassicalModel
 </td>
 <td style="text-align:right;">
-0.9243341
+0.9242721
 </td>
 </tr>
 <tr>
@@ -554,7 +551,7 @@ ClassicalModel
 ClassicPlusImplicit
 </td>
 <td style="text-align:right;">
-0.9129302
+0.9128036
 </td>
 </tr>
 <tr>
@@ -562,7 +559,7 @@ ClassicPlusImplicit
 CollectiveModel
 </td>
 <td style="text-align:right;">
-0.9105305
+0.9098834
 </td>
 </tr>
 </tbody>
@@ -582,12 +579,10 @@ CollectiveModel
 <p>The goal behind building a collaborative filtering model is typically to be able to make top-N recommended lists for users or to obtain latent factors for an unseen user given its current data. <code>cmfrec</code> has many prediction functions for these purposes depending on what specifically one wants to do, supporting both warm-start and cold-start recommendations.</p>
 <div class="sourceCode" id="cb12"><pre class="sourceCode r"><code class="sourceCode r"><a class="sourceLine" id="cb12-1" data-line-number="1"><span class="co">### Re-fitting the earlier model to all the data,</span></a>
 <a class="sourceLine" id="cb12-2" data-line-number="2"><span class="co">### this time *without* scaled regularization</span></a>
-<a class="sourceLine" id="cb12-3" data-line-number="3"><span class="kw">set.seed</span>(<span class="dv">1</span>)</a>
-<a class="sourceLine" id="cb12-4" data-line-number="4">model.classic &lt;-<span class="st"> </span><span class="kw">CMF</span>(X, <span class="dt">k=</span><span class="dv">20</span>, <span class="dt">lambda=</span><span class="dv">10</span>, <span class="dt">scale_lam=</span><span class="ot">FALSE</span>, <span class="dt">verbose=</span><span class="ot">FALSE</span>)</a>
-<a class="sourceLine" id="cb12-5" data-line-number="5"><span class="kw">set.seed</span>(<span class="dv">1</span>)</a>
-<a class="sourceLine" id="cb12-6" data-line-number="6">model.w.sideinfo &lt;-<span class="st"> </span><span class="kw">CMF</span>(X, <span class="dt">U=</span>U, <span class="dt">I=</span>I, <span class="dt">k=</span><span class="dv">20</span>, <span class="dt">lambda=</span><span class="dv">10</span>, <span class="dt">scale_lam=</span><span class="ot">FALSE</span>,</a>
-<a class="sourceLine" id="cb12-7" data-line-number="7">                        <span class="dt">w_main=</span><span class="fl">0.75</span>, <span class="dt">w_user=</span><span class="fl">0.125</span>, <span class="dt">w_item=</span><span class="fl">0.125</span>,</a>
-<a class="sourceLine" id="cb12-8" data-line-number="8">                        <span class="dt">verbose=</span><span class="ot">FALSE</span>)</a></code></pre></div>
+<a class="sourceLine" id="cb12-3" data-line-number="3">model.classic &lt;-<span class="st"> </span><span class="kw">CMF</span>(X, <span class="dt">k=</span><span class="dv">20</span>, <span class="dt">lambda=</span><span class="dv">10</span>, <span class="dt">scale_lam=</span><span class="ot">FALSE</span>, <span class="dt">verbose=</span><span class="ot">FALSE</span>)</a>
+<a class="sourceLine" id="cb12-4" data-line-number="4">model.w.sideinfo &lt;-<span class="st"> </span><span class="kw">CMF</span>(X, <span class="dt">U=</span>U, <span class="dt">I=</span>I, <span class="dt">k=</span><span class="dv">20</span>, <span class="dt">lambda=</span><span class="dv">10</span>, <span class="dt">scale_lam=</span><span class="ot">FALSE</span>,</a>
+<a class="sourceLine" id="cb12-5" data-line-number="5">                        <span class="dt">w_main=</span><span class="fl">0.75</span>, <span class="dt">w_user=</span><span class="fl">0.125</span>, <span class="dt">w_item=</span><span class="fl">0.125</span>,</a>
+<a class="sourceLine" id="cb12-6" data-line-number="6">                        <span class="dt">verbose=</span><span class="ot">FALSE</span>)</a></code></pre></div>
 <div id="recommendations-for-existing-users" class="section level3">
 <h3>Recommendations for existing users</h3>
 <p>When fitting a model, all the necessary fitted matrices are saved inside the object itself, which allows making predictions for existing users based just on the ID. The specific items consumed by each user are however not saved, so in order to avoid recommending already-seen items, these have to be explicitly passed for exclusion.</p>
@@ -596,7 +591,7 @@ CollectiveModel
 <a class="sourceLine" id="cb13-3" data-line-number="3"><span class="co">### returning a 'sparseVector' object as required by cmfrec</span></a>
 <a class="sourceLine" id="cb13-4" data-line-number="4"><span class="kw">topN</span>(model.classic, <span class="dt">user=</span>user_to_recommend, <span class="dt">n=</span><span class="dv">10</span>,</a>
 <a class="sourceLine" id="cb13-5" data-line-number="5">     <span class="dt">exclude=</span>X[user_to_recommend, , <span class="dt">drop=</span><span class="ot">TRUE</span>])</a>
-<a class="sourceLine" id="cb13-6" data-line-number="6"><span class="co">#&gt;  [1] 316 424 405 169 516 190 511 524  79 629</span></a></code></pre></div>
+<a class="sourceLine" id="cb13-6" data-line-number="6"><span class="co">#&gt;  [1] 316 424 524 405 169  89  79 511 187   8</span></a></code></pre></div>
 <div class="sourceCode" id="cb14"><pre class="sourceCode r"><code class="sourceCode r"><a class="sourceLine" id="cb14-1" data-line-number="1"><span class="co">### A handy function for visualizing recommendations</span></a>
 <a class="sourceLine" id="cb14-2" data-line-number="2">movie_names &lt;-<span class="st"> </span><span class="kw">colnames</span>(X)</a>
 <a class="sourceLine" id="cb14-3" data-line-number="3">n_ratings &lt;-<span class="st"> </span><span class="kw">colSums</span>(<span class="kw">as.csc.matrix</span>(X, <span class="dt">binary=</span><span class="ot">TRUE</span>))</a>

@@ -59,17 +59,15 @@ check.str.option <- function(x, var="x", allowed=c()) {
 }
 
 check.is.df <- function(df) {
-    return(
-        as.logical(NROW(intersect(class(df), c("data.frame", "tibble", "data.table"))))
-    )
+    return(inherits(df, c("data.frame", "tibble", "data.table")))
 }
 
 check.is.df.or.mat <- function(df) {
-    return(("matrix" %in% class(df)) || check.is.df(df))
+    return(is.matrix(df) || check.is.df(df))
 }
 
 cast.data.frame <- function(df, nm="X") {
-    if ("tibble" %in% class(df) || ("data.table" %in% class(df)))
+    if (inherits(df, c("tibble", "data.table")))
         df <- as.data.frame(df)
     return(df)
 }
@@ -214,31 +212,38 @@ process.X <- function(X, weight=NULL) {
     
     if (!min(c(NROW(X), NCOL(X))))
         stop("'X' cannot be empty.")
+
+    if (!is.null(weight) &&
+        inherits(weight, c("dgTMatrix", "matrix.coo")) &&
+        !inherits(X, c("dgTMatrix", "matrix.coo"))
+    ) {
+        stop("'X' and 'weight' must be passed in the same sparse format.")
+    }
     
-    if ("data.frame" %in% class(X)) {
+    if (is.data.frame(X)) {
         if (!is.null(weight))
             stop("'weight' should be passed as 4th column of 'X' when 'X' is a 'data.frame'.")
         out$Xrow <- as.integer(X[[1L]]) - 1L
         out$Xcol <- as.integer(X[[2L]]) - 1L
-        out$Xval <- .Call("deep_copy", as.numeric(X[[3L]]))
+        out$Xval <- as.numeric(X[[3L]])
         if (NCOL(X) > 3L) {
             out$Wsp <- as.numeric(X[[4L]])
         }
         out$m <- max(out$Xrow) + 1L
         out$n <- max(out$Xcol) + 1L
-    } else if ("matrix.coo" %in% class(X)) {
+    } else if (inherits(X, "matrix.coo")) {
         out$Xrow <- X@ia - 1L
         out$Xcol <- X@ja - 1L
-        out$Xval <- .Call("deep_copy", X@ra)
+        out$Xval <- X@ra
         out$m    <- X@dimension[1L]
         out$n    <- X@dimension[2L]
-    } else if ("dgTMatrix" %in% class(X)) {
+    } else if (inherits(X, "dgTMatrix")) {
         out$Xrow <- X@i
         out$Xcol <- X@j
-        out$Xval <- .Call("deep_copy", X@x)
+        out$Xval <- X@x
         out$m    <- X@Dim[1L]
         out$n    <- X@Dim[2L]
-    } else if ("matrix" %in% class(X)) {
+    } else if (is.matrix(X)) {
         out$Xarr <- as.numeric(t(X))
         out$m    <- NROW(X)
         out$n    <- NCOL(X)
@@ -252,14 +257,25 @@ process.X <- function(X, weight=NULL) {
     }
     
     if (!is.null(weight)) {
-        if ("matrix" %in% class(X)) {
+
+        if (is.matrix(X)) {
+
             if ((NROW(weight) != NROW(X)) || (NCOL(weight) != NCOL(X)))
                 stop("'weight' must have the same shape as 'X'.")
             out$Warr <- as.numeric(t(weight))
+
         } else {
+
+            if (inherits(weight, "dgTMatrix")) {
+                weight <- weight@x
+            } else if (inherits(weight, "matrix.coo")) {
+                weight <- weight@ra
+            }
+
             out$Wsp  <- as.numeric(weight)
             if (NROW(out$Wsp) != NROW(out$Xval))
                 stop("'weight' must have the same shape as 'X'.")
+
         }
     }
     
@@ -287,20 +303,20 @@ process.side.info <- function(U, name="U", allow_missing=TRUE) {
     if (is.null(U))
         return(out)
     
-    if (("matrix" %in% class(U)) || ("data.frame" %in% class(U))) {
+    if (is.matrix(U) || is.data.frame(U)) {
         out$Uarr <- as.numeric(t(U))
         out$m    <- NROW(U)
         out$p    <- NCOL(U)
-    } else if ("matrix.coo" %in% class(U)) {
+    } else if (inherits(U, "matrix.coo")) {
         out$Urow <- U@ia - 1L
         out$Ucol <- U@ja - 1L
-        out$Uval <- .Call("deep_copy", U@ra)
+        out$Uval <- U@ra
         out$m    <- U@dimension[1L]
         out$p    <- U@dimension[2L]
-    } else if ("dgTMatrix" %in% class(U)) {
+    } else if (inherits(U, "dgTMatrix")) {
         out$Urow <- U@i
         out$Ucol <- U@j
-        out$Uval <- .Call("deep_copy", U@x)
+        out$Uval <- U@x
         out$m    <- U@Dim[1L]
         out$p    <- U@Dim[2L]
     } else {
@@ -401,6 +417,7 @@ get.empty.info <- function() {
         center_U = TRUE,
         center_I = TRUE,
         only_prediction_info = FALSE,
+        seed = 0L,
         nthreads = 1L
     ))
 }
@@ -429,21 +446,21 @@ process.new.X.single <- function(X, X_col, X_val, weight, info, n_max) {
     if (!is.null(X)) {
         if (!inherits(X, allowed_X))
             stop("Invalid 'X' - allowed types: ", paste(allowed_X, collapse=", "))
-        if ("matrix" %in% class(X)) {
+        if (is.matrix(X)) {
             if (NROW(X) > 1L)
                 stop("'X' has more than one row.")
             X <- as.numeric(X)
         }
         if (NROW(X) > n_use)
             stop("'X' has more columns than the model was fit to.")
-        if ("integer" %in% class(X))
+        if (inherits(X, "integer"))
             X <- as.numeric(X)
-        if ("numeric" %in% class(X)) {
-            out$X <- .Call("deep_copy", X)
+        if (inherits(X, "numeric")) {
+            out$X <- X
             out$n <- NROW(X)
         } else {
             out$X_col <- X@i - 1L
-            out$X_val <- .Call("deep_copy", X@x)
+            out$X_val <- X@x
             out$n     <- n_use
         }
     }
@@ -451,7 +468,7 @@ process.new.X.single <- function(X, X_col, X_val, weight, info, n_max) {
     if (!is.null(X_col)) {
         if (NROW(info$item_mapping))
             X_col <- as.integer(factor(X_col, info$item_mapping))
-        if (NROW(intersect(class(X_col), c("numeric", "character", "matrix"))))
+        if (inherits(X_col, c("numeric", "character", "matrix")))
             X_col <- as.integer(X_col)
         X_col <- X_col - 1L
         if (anyNA(X_col))
@@ -462,30 +479,37 @@ process.new.X.single <- function(X, X_col, X_val, weight, info, n_max) {
             stop("'X_col' cannot contain negative indices.")
         if (anyNA(X_val))
             stop("'X_val' cannot have NAN values.")
-        if (("integer" %in% class(X_val)) || ("matrix" %in% class(X_val)))
+        if (inherits(X_val, "integer") || is.matrix(X_val))
             X_val <- as.numeric(X_val)
-        if (!("numeric" %in% class(X_val)))
+        if (!inherits(X_val, "numeric"))
             stop("'X_val' must be a numeric vector.")
         
         out$X_col <- X_col
-        out$X_val <- .Call("deep_copy", X_val)
+        out$X_val <- X_val
         out$n     <- n_use
     }
     
     if (!is.null(weight)) {
-        if (("integer" %in% class(weight)) || ("matrix" %in% class(weight)))
+
+        if (inherits(weight, c("sparseVector", "dgTMatrix", "dgRMatrix"))) {
+            weight <- weight@x
+        } else if (inherits(weight, c("matrix.coo", "matrix.csr"))) {
+            weight <- weight@ra
+        }
+        if (inherits(weight, "integer") || is.matrix(weight))
             weight <- as.numeric(weight)
-        if (!("numeric" %in% class(weight)))
+        if (!inherits(weight, "numeric"))
             stop("'weight' must be a numeric vector.")
         
         if (!is.null(X) && !inherits(X, "sparseVector")) {
             if (NROW(X) != NROW(weight))
                 stop("'weight' must have the same number of entries as 'X'.")
-        } else if (!is.null(X_col)) {
-            if (NROW(X_col) != NROW(weight))
+        } else if (NROW(out$X_col)) {
+            if (NROW(out$X_col) != NROW(weight))
                 stop("'weight' must have the same number of non-missing entries as 'X'.")
         }
         out$weight <- weight
+
     }
     
     return(out)
@@ -511,7 +535,7 @@ process.new.U.single <- function(U, U_col, U_val, name, mapping, p, colnames,
     
     if (!is.null(U)) {
         U <- cast.data.frame(U)
-        if ("data.frame" %in% class(U)) {
+        if (is.data.frame(U)) {
             if (NROW(colnames))
                 U <- U[, colnames, drop = TRUE]
             
@@ -524,7 +548,7 @@ process.new.U.single <- function(U, U_col, U_val, name, mapping, p, colnames,
             U <- as.numeric(U)
         }
         
-        if ("matrix" %in% class(U)) {
+        if (is.matrix(U)) {
             if (NROW(U) > 1L)
                 stop(sprintf("'%s' has more than one row.", name))
             U <- as.numeric(U)
@@ -537,20 +561,20 @@ process.new.U.single <- function(U, U_col, U_val, name, mapping, p, colnames,
             stop(sprintf("Invalid '%s' - allowed types: %s", name, paste(allowed_U, collapse=", ")))
         if (NROW(U) > p)
             stop(sprintf("'%s' has more columns than the model was fit to.", name))
-        if ("integer" %in% class(U))
+        if (inherits(U, "integer"))
             U <- as.numeric(U)
-        if ("numeric" %in% class(U)) {
+        if (inherits(U, "numeric")) {
             if (exact_shapes && NROW(U) != p)
                 stop(sprintf("'%s' has different number of columns than model was fit to.", name))
             if (!allow_na && anyNA(U))
                 stop(sprintf("'%s' cannot have NAN values.", name))
-            out$U <- .Call("deep_copy", U)
+            out$U <- U
             out$p <- NROW(U)
         } else {
             if (U@length > p)
                 stop(sprintf("'%s' has more columns than the model was fit to.", name))
             out$U_col <- U@i - 1L
-            out$U_val <- .Call("deep_copy", U@x)
+            out$U_val <- U@x
             out$p     <- p
         }
     }
@@ -558,7 +582,7 @@ process.new.U.single <- function(U, U_col, U_val, name, mapping, p, colnames,
     if (!is.null(U_col)) {
         if (NROW(mapping))
             U_col <- as.integer(factor(U_col, mapping))
-        if (NROW(intersect(class(U_col), c("numeric", "character", "matrix"))))
+        if (inherits(U_col, c("numeric", "character", "matrix")))
             U_col <- as.integer(U_col)
         U_col <- U_col - 1L
         if (anyNA(U_col))
@@ -569,13 +593,13 @@ process.new.U.single <- function(U, U_col, U_val, name, mapping, p, colnames,
             stop(sprintf("%s_col' cannot contain negative indices.", name))
         if (anyNA(U_val))
             stop(sprintf("'%s_val' cannot have NAN values.", name))
-        if (("integer" %in% class(U_val)) || ("matrix" %in% class(U_val)))
+        if (inherits(U_val, "integer") || is.matrix(U_val))
             U_val <- as.numeric(U_val)
-        if (!("numeric" %in% class(U_val)))
+        if (!inherits(U_val, "numeric"))
             stop(sprintf("'%s_val' must be a numeric vector.", name))
         
         out$U_col <- U_col
-        out$U_val <- .Call("deep_copy", U_val)
+        out$U_val <- U_val
         out$p     <- p
     }
     
@@ -605,18 +629,30 @@ process.new.X <- function(obj, X, weight=NULL,
         stop("'X' cannot be empty.")
     if (is.null(X) && !is.null(weight))
         stop("'weight' not meaningfull without 'X'.")
+
+    types_coo <- c("dgTMatrix", "matrix.coo")
+    types_csr <- c("dgRMatrix", "matrix.csr")
+
+    if (!is.null(weight) && inherits(weight, c(types_coo, types_csr))) {
+        if (is.data.frame(X))
+            stop("'weight' should be the 4th column of 'X' when 'X' is a 'data.frame'.")
+        if ((inherits(weight, types_coo) && !inherits(X, types_coo)) ||
+            (inherits(weight, types_csr) && !inherits(X, types_csr))
+        ) {
+            stop("'X' and 'weight' must be passed in the same format.")
+        }
+    }
     
-    if ("integer" %in% class(X))
+    if (inherits(X, "integer"))
         X <- as.numeric(X)
-    if ("numeric" %in% class(X))
+    if (inherits(X, "numeric"))
         X <- matrix(X, nrow = 1L)
     X <- cast.data.frame(X)
     
     allowed_X <- c("matrix")
     if (allow_sparse)
         allowed_X <- c(allowed_X, c("data.frame", "sparseVector",
-                                    "dgTMatrix", "matrix.coo",
-                                    "dgRMatrix", "matrix.csr"))
+                                    types_coo, types_csr))
     if (allow_null)
         allowed_X <- c(allowed_X, "NULL")
     if (!inherits(X, allowed_X))
@@ -643,7 +679,7 @@ process.new.X <- function(obj, X, weight=NULL,
         
         out$Xrow <- X[[1L]]
         out$Xcol <- X[[2L]]
-        out$Xval <- .Call("deep_copy", X[[3L]])
+        out$Xval <- as.numeric(X[[3L]])
         
         if (ncol(X) >= 4L) {
             out$Wsp <- X[[4L]]
@@ -652,32 +688,32 @@ process.new.X <- function(obj, X, weight=NULL,
     } else if (inherits(X, "dgTMatrix")) {
         out$Xrow <- X@i
         out$Xcol <- X@j
-        out$Xval <- .Call("deep_copy", X@x)
+        out$Xval <- X@x
         out$m    <- X@Dim[1L]
         out$n    <- X@Dim[2L]
     } else if (inherits(X, "matrix.coo")) {
         out$Xrow <- X@ia - 1L
         out$Xcol <- X@ja - 1L
-        out$Xval <- .Call("deep_copy", X@ra)
+        out$Xval <- X@ra
         out$m    <- X@dimension[1L]
         out$n    <- X@dimension[2L]
     } else if (inherits(X, "dgRMatrix")) {
         out$Xcsr_p <- .Call("as_size_t", X@p)
         out$Xcsr_i <- X@j
-        out$Xcsr   <- .Call("deep_copy", X@x)
+        out$Xcsr   <- X@x
         out$m      <- X@Dim[1L]
         out$n      <- X@Dim[2L]
     } else if (inherits(X, "matrix.csr")) {
         out$Xcsr_p <- .Call("as_size_t", X@ia - 1L)
         out$Xcsr_i <- X@ja - 1L
-        out$Xcsr   <- .Call("deep_copy", X@ra)
+        out$Xcsr   <- X@ra
         out$m      <- X@dimension[1L]
         out$n      <- X@dimension[2L]
     } else if (inherits(X, "sparseVector")) {
         out$Xcsr_p <- .Call("as_size_t", c(0L, NROW(X@i)))
         out$Xcsr_i <- X@i - 1L
         if ("x" %in% names(attributes(X)))
-            out$Xcsr <- .Call("deep_copy", as.numeric(X@x))
+            out$Xcsr <- as.numeric(X@x)
         else
             out$Xcsr <- rep(1., length(out$Xcsr_i))
         out$m      <- 1L
@@ -704,17 +740,24 @@ process.new.X <- function(obj, X, weight=NULL,
     }
     
     if (!is.null(weight)) {
-        if ("integer" %in% class(weight))
+
+        if (inherits(weight, c("dgTMatrix", "dgRMatrix", "sparseVector"))) {
+            weight <- weight@x
+        } else if (inherits(weight, c("matrix.coo", "matrix.csr"))) {
+            weight <- weight@ra
+        }
+
+        if (inherits(weight, "integer"))
             weight <- as.numeric(weight)
         weight <- cast.data.frame(weight, "weight")
-        if ("data.frame" %in% class(weight))
+        if (is.data.frame(weight))
             weight <- as.matrix(weight)
         
         allowed_weight <- ifelse(NROW(out$Xarr), "matrix", "numeric")
-        if (!NROW(intersect(class(weight), allowed_weight)))
+        if (!inherits(weight, allowed_weight))
             stop(sprintf("'weight' must be of class '%s'.", allowed_weight))
         
-        if ("matrix" %in% class(weight)) {
+        if (is.matrix(weight)) {
             if ((NROW(weight) != NROW(X)) || (NCOL(weight) != NCOL(X)))
                 stop("'X' and 'weight' must have the same dimensions.")
             out$Wfull <- as.numeric(t(weight))
@@ -762,19 +805,20 @@ process.new.U <- function(U, U_cols, p, name="U",
     
     if (is.null(U) || !max(c(NROW(U), NCOL(U)))) {
         if (allow_null) {
+            out$p <- p
             return(out)
         } else {
             stop(sprintf("'%s' cannot be empty.", name))
         }
     }
     
-    if ("integer" %in% class(U))
+    if (inherits(U, "integer"))
         U <- as.numeric(U)
-    if ("numeric" %in% class(U))
+    if (inherits(U, "numeric"))
         U <- matrix(U, nrow = 1L)
     
     U <- cast.data.frame(U)
-    if ("data.frame" %in% class(U)) {
+    if (is.data.frame(U)) {
         if (NROW(U_cols))
             U <- U[, U_cols, drop=FALSE]
         U <- cast.df.to.matrix(U)
@@ -804,28 +848,28 @@ process.new.U <- function(U, U_cols, p, name="U",
             stop(msg_new_cols)
         out$Urow <- U@i
         out$Ucol <- U@j
-        out$Uval <- .Call("deep_copy", U@x)
+        out$Uval <- U@x
         out$m    <- U@Dim[1L]
     } else if (inherits(U, "matrix.coo")) {
         if (U@dimension[2L] > p)
             stop(msg_new_cols)
         out$Urow <- U@ia - 1L
         out$Ucol <- U@ja - 1L
-        out$Uval <- .Call("deep_copy", U@ra)
+        out$Uval <- U@ra
         out$m    <- U@dimension[1L]
     } else if (inherits(U, "dgRMatrix")) {
         if (U@Dim[2L] > p)
             stop(msg_new_cols)
         out$Ucsr_p <- .Call("as_size_t", U@p)
         out$Ucsr_i <- U@j
-        out$Ucsr   <- .Call("deep_copy", U@x)
+        out$Ucsr   <- U@x
         out$m      <- U@Dim[1L]
     } else if (inherits(U, "matrix.csr")) {
         if (U@dimension[2L] > p)
             stop(msg_new_cols)
         out$Ucsr_p <- .Call("as_size_t", U@ia - 1L)
         out$Ucsr_i <- U@ja - 1L
-        out$Ucsr   <- .Call("deep_copy", U@ra)
+        out$Ucsr   <- U@ra
         out$m      <- U@dimension[1L]
     } else if (inherits(U, "sparseVector")) {
         if (U@length > p)
@@ -833,7 +877,7 @@ process.new.U <- function(U, U_cols, p, name="U",
         out$Ucsr_p <- .Call("as_size_t", c(0L, NROW(U@i)))
         out$Ucsr_i <- U@i - 1L
         if ("x" %in% names(attributes(U)))
-            out$Ucsr <- .Call("deep_copy", as.numeric(U@x))
+            out$Ucsr <- as.numeric(U@x)
         else
             out$Ucsr <- rep(1., length(U@i))
         out$m      <- 1L

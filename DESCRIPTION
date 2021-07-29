@@ -1,9 +1,19 @@
 Package: cmfrec
 Type: Package
 Title: Collective Matrix Factorization for Recommender Systems
-Version: 3.1.2
-Date: 2021-06-27
-Author: David Cortes [aut, cre, cph], Jorge Nocedal [cph], Naoaki Okazaki [cph]
+Version: 3.2.1
+Authors@R: c(
+  person(given="David", family="Cortes", role=c("aut", "cre", "cph"),
+         email="david.cortes.rivera@gmail.com"),
+  person(given="Jorge", family="Nocedal", role="cph",
+         comment="Copyright holder of included LBFGS library"),
+  person(given="Naoaki", family="Okazaki", role="cph",
+         comment="Copyright holder of included LBFGS library"),
+  person(given="David", family="Blackman", role="cph",
+         comment="Copyright holder of original Xoshiro code"),
+  person(given="Sebastiano", family="Vigna", role="cph",
+         comment="Copyright holder of original Xoshiro code")
+  )
 Maintainer: David Cortes <david.cortes.rivera@gmail.com>
 URL: https://github.com/david-cortes/cmfrec
 BugReports: https://github.com/david-cortes/cmfrec/issues
@@ -32,6 +42,11 @@ Suggests: Matrix, MatrixExtra, RhpcBLASctl, recosystem, recommenderlab
 VignetteBuilder: knitr
 RoxygenNote: 7.1.1
 NeedsCompilation: yes
-Packaged: 2021-06-28 02:09:43 UTC; david
+Packaged: 2021-07-29 18:05:27 UTC; david
+Author: David Cortes [aut, cre, cph],
+  Jorge Nocedal [cph] (Copyright holder of included LBFGS library),
+  Naoaki Okazaki [cph] (Copyright holder of included LBFGS library),
+  David Blackman [cph] (Copyright holder of original Xoshiro code),
+  Sebastiano Vigna [cph] (Copyright holder of original Xoshiro code)
 Repository: CRAN
-Date/Publication: 2021-06-28 04:50:02 UTC
+Date/Publication: 2021-07-29 18:50:02 UTC
