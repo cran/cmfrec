@@ -136,7 +136,7 @@ swap.users.and.items <- function(model, precompute = TRUE) {
             }
             new_model$precomputed$BtB <- matrix(0., nrow=k_sec+k+k_main+user_bias, ncol=k_sec+k+k_main+user_bias)
             new_model$precomputed$TransBtBinvBt <- matrix(0., ncol=n_max, nrow=k_sec+k+k_main+user_bias)
-            ret_code <- .Call("call_precompute_collective_explicit",
+            ret_code <- .Call(call_precompute_collective_explicit,
                               new_model$matrices$Bm, n_max, n_max, TRUE,
                               numeric(), 0L,
                               numeric(), FALSE,
@@ -161,7 +161,7 @@ swap.users.and.items <- function(model, precompute = TRUE) {
             check.ret.code(ret_code)
         } else if ("OMF_implicit" %in% class(model)) {
             new_model$precomputed$BtB <- matrix(0., nrow=new_model$info$k, ncol=new_model$info$k)
-            ret_code <- .Call("call_precompute_collective_implicit",
+            ret_code <- .Call(call_precompute_collective_implicit,
                               new_model$matrices$Bm, NCOL(new_model$matrices$Bm),
                               numeric(), 0L,
                               numeric(), FALSE,
@@ -305,11 +305,11 @@ drop.nonessential.matrices <- function(model, drop_precomputed=TRUE) {
 #' X <- as.coo.matrix(MovieLense@data)
 #' r <- Reco()
 #' r$train(data_memory(X@i, X@j, X@x, index1=FALSE),
-#'         out_model = file.path(tempdir(), "model.txt"),
+#'         out_model = NULL,
 #'         opts = list(dim=10, costp_l2=0.1, costq_l2=0.1,
 #'                     verbose=FALSE, nthread=1))
 #' matrices <- r$output(out_memory(), out_memory())
-#' glob_mean <- mean(X@x)
+#' glob_mean <- as.numeric(r$model$matrices$b)
 #' 
 #' ### Now converting it to CMF
 #' model <- CMF.from.model.matrices(

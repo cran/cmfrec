@@ -107,25 +107,51 @@ typedef void (*sig_t_)(int);
             #define AVOID_BLAS_SYR
         #endif
     #endif
+    #include <stdarg.h>
+    #include <stdio.h>
+    #ifdef _WIN32
+        #define IMPORTED_FUN __declspec(dllimport)
+    #else
+        #define IMPORTED_FUN 
+    #endif
+    extern IMPORTED_FUN void PySys_WriteStdout(const char *fmt, ...);
+    extern IMPORTED_FUN void PySys_WriteStderr(const char *fmt, ...);
+    void python_printmsg(char *msg);
+    void python_printerrmsg(char *msg);
+    void py_printf(const char *fmt, ...);
+    void py_errprintf(void *ignored, const char *fmt, ...);
+    extern void cy_printf(char *msg);
+    extern void cy_errprintf(char *msg);
+    #define printf py_printf
+    #define fprintf py_errprintf
+    #define fflush(arg) {}
 #elif defined(_FOR_R)
+    #include <Rconfig.h>
     #include <R.h>
     #include <Rinternals.h>
     #include <R_ext/Print.h>
     #include <R_ext/BLAS.h>
     #include <R_ext/Lapack.h>
+    #include <R_ext/Visibility.h>
     #define USE_DOUBLE
-    #define FORCE_NO_NAN_PROPAGATION
     #define printf Rprintf
     #define fprintf(f, message) REprintf(message)
+    #define fflush(f) R_FlushConsole()
 #elif defined(MKL_ILP64)
     #include "mkl.h"
 #endif
 /* Here one may also include the standard headers "cblas.h" and "lapack.h",
    if one wants to use a non-standard version such as ILP64 (-DMKL_ILP64). */
+#if !defined(_FOR_R) && !defined(_FOR_PYTHON)
+    #include <stdio.h>
+#endif
+#ifndef FCONE
+    #define FCONE
+#endif
 
 /* Aliasing for compiler optimizations */
 #ifdef __cplusplus
-    #if defined(__GNUG__) || defined(__GNUC__) || defined(_MSC_VER) || defined(__clang__) || defined(__INTEL_COMPILER)
+    #if defined(__GNUG__) || defined(__GNUC__) || defined(_MSC_VER) || defined(__clang__) || defined(__INTEL_COMPILER) || defined(__IBMCPP__) || defined(__ibmxl__)
         #define restrict __restrict
     #else
         #define restrict 
@@ -197,11 +223,19 @@ typedef void (*sig_t_)(int);
     #define cblas_tgemv cblas_dgemv
     #define cblas_tger cblas_dger
     #define cblas_tsymv cblas_dsymv
-    #define tlacpy_ dlacpy_
-    #define tposv_ dposv_
-    #define tpotrf_ dpotrf_
-    #define tpotrs_ dpotrs_
-    #define tgelsd_ dgelsd_
+    #ifndef _FOR_R
+        #define tlacpy_ dlacpy_
+        #define tposv_ dposv_
+        #define tpotrf_ dpotrf_
+        #define tpotrs_ dpotrs_
+        #define tgelsd_ dgelsd_
+    #else
+        #define tlacpy_(a1, a2, a3, a4, a5, a6, a7) F77_CALL(dlacpy)((a1), (a2), (a3), (a4), (a5), (a6), (a7) FCONE)
+        #define tposv_(a1, a2, a3, a4, a5, a6, a7, a8) F77_CALL(dposv)((a1), (a2), (a3), (a4), (a5), (a6), (a7), (a8) FCONE)
+        #define tpotrf_(a1, a2, a3, a4, a5) F77_CALL(dpotrf)((a1), (a2), (a3), (a4), (a5) FCONE)
+        #define tpotrs_(a1, a2, a3, a4, a5, a6, a7, a8) F77_CALL(dpotrs)((a1), (a2), (a3), (a4), (a5), (a6), (a7), (a8) FCONE)
+        #define tgelsd_ F77_CALL(dgelsd)
+    #endif
 #else
     #define LBFGS_FLOAT 32
     #define real_t float

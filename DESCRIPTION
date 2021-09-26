@@ -1,7 +1,7 @@
 Package: cmfrec
 Type: Package
 Title: Collective Matrix Factorization for Recommender Systems
-Version: 3.2.2
+Version: 3.2.2-1
 Authors@R: c(
   person(given="David", family="Cortes", role=c("aut", "cre", "cph"),
          email="david.cortes.rivera@gmail.com"),
@@ -37,16 +37,16 @@ Description: Collective matrix factorization (a.k.a. multi-view or multi-way fac
 	offers alternative most-popular and content-based models, and implements functionality
 	for cold-start recommendations and imputation of 2D data.
 License: MIT + file LICENSE
-Suggests: Matrix, MatrixExtra, RhpcBLASctl, recosystem, recommenderlab
-        (>= 0.2-7), MASS, knitr, rmarkdown, kableExtra
+Suggests: Matrix, MatrixExtra, RhpcBLASctl, recosystem (>= 0.5),
+        recommenderlab (>= 0.2-7), MASS, knitr, rmarkdown, kableExtra
 VignetteBuilder: knitr
-RoxygenNote: 7.1.1
+RoxygenNote: 7.1.2
 NeedsCompilation: yes
-Packaged: 2021-07-29 23:02:54 UTC; david
+Packaged: 2021-09-26 01:35:12 UTC; david
 Author: David Cortes [aut, cre, cph],
   Jorge Nocedal [cph] (Copyright holder of included LBFGS library),
   Naoaki Okazaki [cph] (Copyright holder of included LBFGS library),
   David Blackman [cph] (Copyright holder of original Xoshiro code),
   Sebastiano Vigna [cph] (Copyright holder of original Xoshiro code)
 Repository: CRAN
-Date/Publication: 2021-07-30 08:00:06 UTC
+Date/Publication: 2021-09-26 04:30:02 UTC

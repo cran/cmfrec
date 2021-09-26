@@ -1399,9 +1399,7 @@ int_t lbfgs_printer_collective
     if ((k % print_every) == 0 && print_every > 0) {
         printf("Iteration %-4d - f(x)= %-8.03g - ||g(x)||= %-8.03g - ls=% 2d\n",
                k, fx, gnorm, ls);
-        #if !defined(_FOR_R)
         fflush(stdout);
-        #endif
     }
     if (should_stop_procedure)
         return 1;
@@ -1427,9 +1425,7 @@ int_t lbfgs_printer_offsets
     if ((k % print_every) == 0 && print_every > 0) {
         printf("Iteration %-5d - f(x)= %-8.03g - ||g(x)||= %-8.03g - ls=% 2d\n",
                k, fx, gnorm, ls);
-        #if !defined(_FOR_R)
         fflush(stdout);
-        #endif
     }
     if (should_stop_procedure)
         return 1;
@@ -1516,16 +1512,49 @@ void print_err_msg(const char *msg)
 {
     #ifndef _FOR_R
     fprintf(stderr, "%s", msg);
-    fflush(stderr);
     #else
     fprintf(stderr, msg);
     #endif
+    fflush(stderr);
 }
 
 void print_oom_message(void)
 {
     print_err_msg("Error: could not allocate enough memory.\n");
 }
+
+#ifdef _FOR_PYTHON
+#define PY_MSG_MAX_LENGTH 256
+void py_printf(const char *fmt, ...)
+{
+    char msg[PY_MSG_MAX_LENGTH];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(msg, PY_MSG_MAX_LENGTH, fmt, args);
+    va_end(args);
+    cy_printf(msg);
+}
+
+void py_errprintf(void *ignored, const char *fmt, ...)
+{
+    char msg[PY_MSG_MAX_LENGTH];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(msg, PY_MSG_MAX_LENGTH, fmt, args);
+    va_end(args);
+    cy_errprintf(msg);
+}
+
+void python_printmsg(char *msg)
+{
+    PySys_WriteStdout("%s", msg);
+}
+
+void python_printerrmsg(char *msg)
+{
+    PySys_WriteStderr("%s", msg);
+}
+#endif
 
 void act_on_interrupt(int retval, bool handle_interrupt, bool print_msg)
 {
