@@ -14,8 +14,8 @@ process.inputs.topN <- function(model, obj, user=NULL, a_vec=NULL, a_bias=NULL,
         exclude <- exclude@i
     }
     
-    output_score <- check.bool(output_score, "output_score")
-    n <- check.pos.int(n, "n", TRUE)
+    output_score <- check.bool(output_score)
+    n <- check.pos.int(n, TRUE)
     if (NROW(obj$info$item_mapping)) {
         if (!is.null(include))
             include <- as.integer(factor(include, obj$info$item_mapping))
@@ -31,7 +31,7 @@ process.inputs.topN <- function(model, obj, user=NULL, a_vec=NULL, a_bias=NULL,
     if (!is.null(user)) {
         if (inherits(user, c("numeric", "character")))
             user <- as.integer(user)
-        user <- check.pos.int(user, "user", TRUE)
+        user <- check.pos.int(user, TRUE)
         if (model != "MostPopular") {
             m_max <- ifelse(model %in% c("OMF_explicit", "OMF_explicit", "ContentBased"),
                             NCOL(obj$matrices$Am), NCOL(obj$matrices$A))
@@ -219,6 +219,10 @@ process.inputs.topN <- function(model, obj, user=NULL, a_vec=NULL, a_bias=NULL,
 #' (through e.g. `mclapply` or similar), it's recommended to decrease the number
 #' of threads in the model to 1 (e.g. `model$info$nthreads <- 1L`) and to set the
 #' number of BLAS threads to 1 (through e.g. `RhpcBLASctl` or environment variables).
+#' 
+#' For better cold-start recommendations with \link{CMF_implicit}, one can also add
+#' item biases by using the `CMF` model with parameters that would mimic `CMF_implicit`
+#' plus the biases.
 #' @param model A collective matrix factorization model from this package - see
 #' \link{fit_models} for details.
 #' @param user User (row of `X`) for which to rank items. If `X` to which the model
@@ -421,10 +425,10 @@ topN_new.ContentBased <- function(model, U=NULL, U_col=NULL, U_val=NULL, I=NULL,
                      output_score = inputs$output_score))
         
     } else {
-        processed_U <- process.new.U.single(U, U_col, U_val, "U",
+        processed_U <- process.new.U.single(U, U_col, U_val,
                                             model$info$user_mapping, NCOL(model$matrices$C),
                                             model$info$U_cols)
-        processed_I <- process.new.U(I, model$info$I_cols, NCOL(model$matrices$D), "I",
+        processed_I <- process.new.U(I, model$info$I_cols, NCOL(model$matrices$D),
                                      allow_sparse=TRUE, allow_null=FALSE,
                                      allow_na=FALSE, exact_shapes=TRUE)
         
