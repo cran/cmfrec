@@ -1,7 +1,7 @@
 Package: cmfrec
 Type: Package
 Title: Collective Matrix Factorization for Recommender Systems
-Version: 3.2.2-2
+Version: 3.3.0
 Authors@R: c(
   person(given="David", family="Cortes", role=c("aut", "cre", "cph"),
          email="david.cortes.rivera@gmail.com"),
@@ -42,11 +42,11 @@ Suggests: Matrix, MatrixExtra, RhpcBLASctl, recosystem (>= 0.5),
 VignetteBuilder: knitr
 RoxygenNote: 7.1.2
 NeedsCompilation: yes
-Packaged: 2021-11-07 19:10:27 UTC; david
+Packaged: 2021-12-31 18:29:23 UTC; david
 Author: David Cortes [aut, cre, cph],
   Jorge Nocedal [cph] (Copyright holder of included LBFGS library),
   Naoaki Okazaki [cph] (Copyright holder of included LBFGS library),
   David Blackman [cph] (Copyright holder of original Xoshiro code),
   Sebastiano Vigna [cph] (Copyright holder of original Xoshiro code)
 Repository: CRAN
-Date/Publication: 2021-11-07 20:10:02 UTC
+Date/Publication: 2022-01-03 13:40:05 UTC

@@ -956,7 +956,9 @@ void exp_neg_x(real_t *restrict arr, size_t n, int nthreads)
                 )
     long long ix;
     #endif
+    #ifndef _WIN32
     #pragma omp parallel for schedule(static) num_threads(nthreads) shared(arr, n)
+    #endif
     for (size_t_for ix = 0; ix < n; ix++)
         arr[ix] = exp_t(-arr[ix]);
 }
@@ -965,6 +967,34 @@ void add_to_diag(real_t *restrict A, real_t val, size_t n)
 {
     for (size_t ix = 0; ix < n; ix++)
         A[ix + ix*n] += val;
+}
+
+void add_to_diag2(real_t *restrict A, real_t val, size_t n, real_t val_last)
+{
+    for (size_t ix = 0; ix < n-1; ix++)
+        A[ix + ix*n] += val;
+    A[square(n)-1] += val_last;
+}
+
+void fma_extra(real_t *restrict a, real_t w, real_t *restrict b, int_t n)
+{
+    #ifdef __clang__
+    #pragma clang fp reassociate(on)
+    #endif
+    for (int_t ix = 0; ix < n; ix++)
+        a[ix] += w * b[ix] * b[ix];
+}
+
+void mult2(real_t *restrict out, real_t *restrict a, real_t *restrict b, int_t n)
+{
+    for (int_t ix = 0; ix < n; ix++)
+        out[ix] = a[ix] * b[ix];
+}
+
+void recipr(real_t *restrict x, int_t n)
+{
+    for (int_t ix = 0; ix < n; ix++)
+        x[ix] = (real_t)1 / x[ix];
 }
 
 real_t sum_sq_div_w(real_t *restrict arr, real_t *restrict w, size_t n, bool compensated, int nthreads)
@@ -976,7 +1006,9 @@ real_t sum_sq_div_w(real_t *restrict arr, real_t *restrict w, size_t n, bool com
                 )
     long long ix;
     #endif
+    #ifndef _WIN32
     #pragma omp parallel for schedule(static) num_threads(nthreads) shared(arr, w, n) reduction(+:res)
+    #endif
     for (size_t_for ix = 0; ix < n; ix++)
         res += square(arr[ix]) / w[ix];
     return res;
@@ -1617,10 +1649,10 @@ void custom_syr(const int_t n, const real_t alpha, const real_t *restrict x, rea
 {
     real_t temp;
     real_t *restrict Arow;
-    for (int i = 0; i < n; i++) {
+    for (int_t i = 0; i < n; i++) {
         temp = alpha*x[i];
         Arow = A + (size_t)i*(size_t)lda;
-        for (int j = i; j < n; j++)
+        for (int_t j = i; j < n; j++)
             Arow[j] = fma_t(temp, x[j], Arow[j]);
     }
 }
