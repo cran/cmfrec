@@ -978,7 +978,7 @@ void add_to_diag2(real_t *restrict A, real_t val, size_t n, real_t val_last)
 
 void fma_extra(real_t *restrict a, real_t w, real_t *restrict b, int_t n)
 {
-    #ifdef __clang__
+    #if defined(CLANG_FP_REASSOCIATE) && defined(__clang__)
     #pragma clang fp reassociate(on)
     #endif
     for (int_t ix = 0; ix < n; ix++)
@@ -1526,9 +1526,9 @@ void append_ones_last_col
     real_t *restrict outp
 )
 {
-    copy_mat(m, n,
-             orig, n,
-             outp, n+1);
+    copy_mat((int_t)m, (int_t)n,
+             orig, (int_t)n,
+             outp, (int_t)(n+1));
     for (size_t ix = 0; ix < m; ix++)
         outp[n + ix*(n+(size_t)1)] = 1.;
 }
