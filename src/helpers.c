@@ -50,7 +50,7 @@
 
     MIT License:
 
-    Copyright (c) 2020-2021 David Cortes
+    Copyright (c) 2020-2022 David Cortes
 
     All rights reserved.
 
@@ -512,10 +512,17 @@ static inline uint64_t splitmix64(const uint64_t seed)
     return z ^ (z >> 31);
 }
 #ifndef USE_XOSHIRO128
-static inline uint64_t rotl64(const uint64_t x, const int k) {
+#ifdef __GNUC__
+__attribute__((always_inline))
+#endif
+static inline uint64_t rotl64(const uint64_t x, const int k)
+{
     return (x << k) | (x >> (64 - k));
 }
 
+#ifdef __GNUC__
+__attribute__((always_inline))
+#endif
 static inline uint64_t xoshiro256pp(uint64_t state[4])
 {
     const uint64_t result = rotl64(state[0] + state[3], 23) + state[0];
@@ -529,6 +536,9 @@ static inline uint64_t xoshiro256pp(uint64_t state[4])
     return result;
 }
 
+#ifdef __GNUC__
+__attribute__((always_inline))
+#endif
 static inline void xoshiro256pp_jump(uint64_t state[4])
 {
     const uint64_t JUMP[] = { 0x180ec6d33cfd0aba, 0xd5a61266f0c9392c,
@@ -559,10 +569,17 @@ static inline void xoshiro256pp_jump(uint64_t state[4])
 }
 #else
 
-static inline uint32_t rotl32(const uint32_t x, const int k) {
+#ifdef __GNUC__
+__attribute__((always_inline))
+#endif
+static inline uint32_t rotl32(const uint32_t x, const int k)
+{
     return (x << k) | (x >> (32 - k));
 }
 
+#ifdef __GNUC__
+__attribute__((always_inline))
+#endif
 static inline uint32_t xoshiro128pp(uint32_t state[4])
 {
     const uint32_t result = rotl32(state[0] + state[3], 7) + state[0];
@@ -576,6 +593,9 @@ static inline uint32_t xoshiro128pp(uint32_t state[4])
     return result;
 }
 
+#ifdef __GNUC__
+__attribute__((always_inline))
+#endif
 static inline void xoshiro128pp_jump(uint32_t state[4])
 {
     const uint32_t JUMP[] = { 0x8764000b, 0xf542d2d3,
@@ -606,192 +626,251 @@ static inline void xoshiro128pp_jump(uint32_t state[4])
 }
 #endif
 
-/* Note: for double precision, this uses the Box-Muller transform
-   with raw form, which is less efficient than the polar form.
-   Nevertheless, from some experiments, this seems to give slightly better
-   end results when using double precision, even though it is slower and
-   loses more numeric precision by boxing to [0, 1] instead of [-1, 1].
-   For single precision, the polar form tended to give better results.
+/* Note: this samples from a **truncated** normal distribution, excluding
+   the ~0.7% most extreme values. It does so by using the ziggurat method,
+   but instead of sampling from the tails when needed, it simply restarts
+   so as to never give extreme values. This is only used for initialization
+   of parameters so extreme values are not desired here. As a bonus, this
+   makes the procedure much faster than a proper ziggurat from a full
+   normal distribution. The tables are pre-calculated and taken from NumPy.
 
-   Note: if generating a uniform random number ~ (0,1), dividing
-   a random draw by the maximum will not result in a uniform
-   distribution, as the upper possible numbers are not evenly-spaced.
-   In these cases, it's necessary to take something up to 2^53 as
-   this is the interval that's evenly-representable. */
-#if defined(USE_DOUBLE) || !(defined(USE_FLOAT) && defined(USE_XOSHIRO128))
-void rnorm_xoshiro(real_t *seq, const size_t n, rng_state_t state[4])
+   Note that this involves drawing random numbers ~U(0,1). A naive procedure
+   would just draw an integer and divide by the maximum, but the interval is
+   not evenly representable as floating point numbers, so one may instead divide
+   it in chunks of length 2^-53 to represent the mantissa. If one instead wants
+   a number in a closed (0,1) interval (excluding both endpoints), it's possible
+   to generate one by using 52-bits of mantissa (an integer in the range
+   [0,2^52-1], including both endpoints), adding +0.5 (or 2^-1, another bit),
+   and then dividing by 2^52 (can do the math with all numbers expressed as
+   power of 2 to make it easier to see).
+
+   Given that a single random draw involves 64-bits, it's possible to choose the
+   rectangle (last 8 bits, for 2^8-1=255 rectangles), the sign (next 1 bit), and
+   the uniformly-drawn real from the same random 64-bit random draw by taking it
+   in chunks for each required part.  */
+#include "ziggurat.h"
+#if defined(USE_DOUBLE) || !defined(USE_FLOAT)
+void rnorm_xoshiro(double *seq, const size_t n, rng_state_t state[4])
+{
+    uint64_t rnd;
+    uint8_t rectangle;
+    uint8_t sign;
+    double rnorm;
+    double runif;
+
+    #ifdef USE_XOSHIRO128
+    uint32_t rnd1, rnd2;
+    #endif
+    
+    size_t ix = 0;
+    while (ix < n)
+    {
+        #ifndef USE_XOSHIRO128
+        rnd = xoshiro256pp(state);
+        #else
+        rnd1 = xoshiro128pp(state);
+        rnd2 = xoshiro128pp(state);
+        memcpy((char*)&rnd, &rnd1, sizeof(uint32_t));
+        memcpy((char*)&rnd + sizeof(uint32_t), &rnd2, sizeof(uint32_t));
+        #endif
+        rectangle = rnd & 255; /* <- number of rectangles (took 8 bits) */
+        rnd >>= 8;
+        sign = rnd & 1; /* <- took 1 bit */
+        /* there's currently 56 bits left, already used 1 for the sign, need to
+           take 52 for for the uniform draw, so can chop off 3 more than what
+           was taken to get there faster. */
+        rnd >>= 4;
+        rnorm = rnd * wi_double[rectangle];
+        if (rnd < ki_double[rectangle])
+        {
+            seq[ix++] = sign? rnorm : -rnorm;
+        }
+
+        else if (rectangle != 0)
+        {
+            #ifndef USE_XOSHIRO128
+            rnd = xoshiro256pp(state);
+            #else
+            rnd1 = xoshiro128pp(state);
+            rnd2 = xoshiro128pp(state);
+            memcpy((char*)&rnd, &rnd1, sizeof(uint32_t));
+            memcpy((char*)&rnd + sizeof(uint32_t), &rnd2, sizeof(uint32_t));
+            #endif
+            #ifdef SUPPORTS_HEXFLOAT
+            runif = ((double)(rnd  >> 12) + 0.5) * 0x1.0p-52;
+            #else
+            runif = ((double)(rnd >> 12) + 0.5);
+            runif = ldexp(runif, -52);
+            #endif
+            if (runif * (fi_double[rectangle-1] - fi_double[rectangle])
+                    <
+                exp(-0.5 * rnorm * rnorm) - fi_double[rectangle])
+            {
+                seq[ix++] = sign? rnorm : -rnorm;
+            }
+        }
+    }
+
+    #ifdef SUPPORTS_HEXFLOAT
+    for (size_t ix = 0; ix < n; ix++)
+        seq[ix] *= 0x1.0p-7;
+    #else
+    for (size_t ix = 0; ix < n; ix++)
+        seq[ix] = ldexp(seq[ix], -7);
+    #endif
+}
+
+void runif_xoshiro(double *seq, const size_t n, rng_state_t state[4])
 {
     #ifndef USE_XOSHIRO128
-    const uint64_t two53_i = (UINT64_C(1) << 53) - UINT64_C(1);
+    #ifdef SUPPORTS_HEXFLOAT
+    for (size_t ix = 0; ix < n; ix++)
+        seq[ix] = ((double)(xoshiro256pp(state) >> 12) + 0.5) * 0x1.0p-59;
+    #else
+    for (size_t ix = 0; ix < n; ix++)
+        seq[ix] = ldexp((double)(xoshiro256pp(state) >> 12) + 0.5, -59);
     #endif
-    const double twoPI = 2. * M_PI;
-    uint64_t rnd1, rnd2;
-    #ifdef USE_XOSHIRO128
-    uint32_t rnd11, rnd12, rnd21, rnd22;
-    const uint32_t two21_i = (UINT32_C(1) << 21) - UINT32_C(1);
-    const uint32_t ONE = 1;
-    const bool is_little_endian = *((unsigned char*)&ONE) != 0;
+    #else
+    uint64_t rnd;
+    uint32_t rnd1, rnd2;
+    for (size_t ix = 0; ix < n; ix++) {
+        rnd1 = xoshiro128pp(state);
+        rnd2 = xoshiro128pp(state);
+        memcpy(&rnd, &rnd1, sizeof(uint32_t));
+        memcpy(&rnd + sizeof(uint32_t), &rnd2, sizeof(uint32_t));
+        #ifdef SUPPORTS_HEXFLOAT
+        seq[ix] = ((double)(rnd >> 12) + 0.5) * 0x1.0p-59;
+        #else
+        seq[ix] = ldexp((double)(rnd >> 12) + 0.5, 59);
+        #endif
+    }
     #endif
-    double u, v;
-    size_t n_ = n / (size_t)2;
-    for (size_t ix = 0; ix < n_; ix++)
-    {
-        do
-        {
-            #ifdef USE_XOSHIRO128
-            rnd11 = xoshiro128pp(state);
-            rnd12 = xoshiro128pp(state);
-            rnd21 = xoshiro128pp(state);
-            rnd22 = xoshiro128pp(state);
-            #else
-            rnd1 = xoshiro256pp(state);
-            rnd2 = xoshiro256pp(state);
-            #endif
-
-            #if defined(DBL_MANT_DIG) && (DBL_MANT_DIG == 53) &&(FLT_RADIX == 2)
-            #ifdef USE_XOSHIRO128
-            if (is_little_endian) {
-                rnd12 = rnd12 & two21_i;
-                rnd22 = rnd22 & two21_i;
-            } else {
-                rnd11 = rnd11 & two21_i;
-                rnd21 = rnd21 & two21_i;
-            }
-            memcpy((char*)&rnd1, &rnd11, sizeof(uint32_t));
-            memcpy((char*)&rnd1 + sizeof(uint32_t), &rnd12, sizeof(uint32_t));
-            memcpy((char*)&rnd2, &rnd21, sizeof(uint32_t));
-            memcpy((char*)&rnd2 + sizeof(uint32_t), &rnd22, sizeof(uint32_t));
-            u = ldexp((double)rnd1, -53);
-            v = ldexp((double)rnd2, -53);
-            #else
-            u = ldexp((double)(rnd1 & two53_i), -53);
-            v = ldexp((double)(rnd2 & two53_i), -53);
-            #endif
-            #else
-            u = (double)rnd1 / (double)UINT64_MAX;
-            v = (double)rnd2 / (double)UINT64_MAX;
-            #endif
-        }
-        while (u == 0 || v == 0);
-
-        u = sqrt(-2. * log(u));
-        seq[(size_t)2*ix] = (real_t)ldexp(cos(twoPI * v) * u, -7);
-        seq[(size_t)2*ix + (size_t)1] = (real_t)ldexp(sin(twoPI * v) * u, -7);
-    }
-
-    if ((n % (size_t)2) != 0)
-    {
-        do
-        {
-            #ifdef USE_XOSHIRO128
-            rnd11 = xoshiro128pp(state);
-            rnd12 = xoshiro128pp(state);
-            rnd21 = xoshiro128pp(state);
-            rnd22 = xoshiro128pp(state);
-            #else
-            rnd1 = xoshiro256pp(state);
-            rnd2 = xoshiro256pp(state);
-            #endif
-
-            #if defined(DBL_MANT_DIG) && (DBL_MANT_DIG == 53) &&(FLT_RADIX == 2)
-            #ifdef USE_XOSHIRO128
-            if (is_little_endian) {
-                rnd12 = rnd12 & two21_i;
-                rnd22 = rnd22 & two21_i;
-            } else {
-                rnd11 = rnd11 & two21_i;
-                rnd21 = rnd21 & two21_i;
-            }
-            memcpy((char*)&rnd1, &rnd11, sizeof(uint32_t));
-            memcpy((char*)&rnd1 + sizeof(uint32_t), &rnd12, sizeof(uint32_t));
-            memcpy((char*)&rnd2, &rnd21, sizeof(uint32_t));
-            memcpy((char*)&rnd2 + sizeof(uint32_t), &rnd22, sizeof(uint32_t));
-            u = ldexp((double)rnd1, -53);
-            v = ldexp((double)rnd2, -53);
-            #else
-            u = ldexp((double)(rnd1 & two53_i), -53);
-            v = ldexp((double)(rnd2 & two53_i), -53);
-            #endif
-            #else
-            u = (double)rnd1 / (double)UINT64_MAX;
-            v = (double)rnd2 / (double)UINT64_MAX;
-            #endif
-        }
-        while (u == 0 || v == 0);
-
-        u = sqrt(-2. * log(u));
-        seq[n - (size_t)1] = (real_t)ldexp(cos(twoPI * v) * u, -7);
-    }
 }
 #else
 void rnorm_xoshiro(float *seq, const size_t n, rng_state_t state[4])
 {
-    const uint32_t two25_i = (UINT32_C(1) << 25) - UINT32_C(1);
-    const int32_t two24_i = (UINT32_C(1) << 24);
-    uint32_t rnd1, rnd2;
+    uint32_t rnd;
+    uint8_t sign;
+    uint8_t rectangle;
+    float rnorm;
+    float runif;
+
     #ifndef USE_XOSHIRO128
-    uint64_t rnd0;
+    uint64_t rnd_big;
+    bool reuse_draw = false;
     #endif
-    float u, v, s;
-    size_t n_ = n / (size_t)2;
-    for (size_t ix = 0; ix < n_; ix++)
+
+    size_t ix = 0;
+    while (ix < n)
     {
-        do
-        {
-            #ifdef USE_XOSHIRO128
-            rnd1 = xoshiro128pp(state);
-            rnd2 = xoshiro128pp(state);
-            #else
-            rnd0 = xoshiro256pp(state);
-            memcpy(&rnd1, (char*)&rnd0, sizeof(uint32_t));
-            memcpy(&rnd2, (char*)&rnd0 + sizeof(uint32_t), sizeof(uint32_t));
-            #endif
-
-            #if defined(FLT_MANT_DIG) && (FLT_MANT_DIG == 24) &&(FLT_RADIX == 2)
-            u = ldexpf((float)((int32_t)(rnd1 & two25_i) - two24_i), -24);
-            v = ldexpf((float)((int32_t)(rnd2 & two25_i) - two24_i), -24);
-            #else
-            u = (float)rnd1 / (float)INT32_MAX;
-            v = (float)rnd2 / (float)INT32_MAX;
-            #endif
-
-            s = square(u) + square(v);
+        #ifndef USE_XOSHIRO128
+        if (reuse_draw) {
+            reuse_draw = false;
+            rnd = rnd_big;
         }
-        while (s == 0 || s >= 1);
+        else {
+            rnd_big = xoshiro256pp(state);
+            reuse_draw = true;
+            rnd = rnd_big & 0xffffffff;
+            rnd_big >>= 32;
+        }
+        #else
+        rnd = xoshiro128pp(state);
+        #endif
 
-        s = sqrtf((-2.0f / s) * logf(s));
-        seq[(size_t)2*ix] = ldexpf(u * s, -7);
-        seq[(size_t)2*ix + (size_t)1] = ldexpf(v * s, -7);
+        rectangle = rnd & 255; /* <- number of rectangles (took 8 bits) */
+        rnd >>= 8;
+        sign = rnd & 1; /* <- took 1 bit */
+        rnd >>= 1;
+
+        /* For 32-bit floats, mantissa is 24 bits, so we need 23 bits to get
+           a closed-interval uniform. We drew 32 bits, took 8 for the rectangle,
+           and 1 for the sign, leaving exactly 23 bits, so no need to chop off
+           more of them like for float-64. */
+        
+        rnorm = rnd * wi_float[rectangle];
+        if (rnd < ki_float[rectangle])
+        {
+            seq[ix++] = sign? rnorm : -rnorm;
+        }
+
+        else
+        {
+            #ifndef USE_XOSHIRO128
+            if (reuse_draw) {
+                reuse_draw = false;
+                rnd = rnd_big;
+            }
+            else {
+                rnd_big = xoshiro256pp(state);
+                reuse_draw = true;
+                rnd = rnd_big & 0xffffffff;
+                rnd_big >>= 32;
+            }
+            #else
+            rnd = xoshiro128pp(state);
+            #endif
+            
+            #ifdef SUPPORTS_HEXFLOAT
+            runif = ((float)(rnd >> 9) + 0.5f) * 0x1.0p-23f;
+            #else
+            runif = ((float)(rnd  >> 9) + 0.5f);
+            runif = ldexpf(runif, -23);
+            #endif
+            if (runif * (fi_float[rectangle-1] - fi_float[rectangle])
+                    <
+                expf(-0.5f * rnorm * rnorm) - fi_float[rectangle])
+            {
+                seq[ix++] = sign? rnorm : -rnorm;
+            }
+        }
     }
 
-    if ((n % (size_t)2) != 0)
+    #ifdef SUPPORTS_HEXFLOAT
+    for (size_t ix = 0; ix < n; ix++)
+        seq[ix] *= 0x1.0p-7f;
+    #else
+    for (size_t ix = 0; ix < n; ix++)
+        seq[ix] = ldexpf(seq[ix], -7);
+    #endif
+}
+
+void runif_xoshiro(float *seq, const size_t n, rng_state_t state[4])
+{
+    #ifndef USE_XOSHIRO128
+    uint64_t rnd;
+    size_t ix_;
+    size_t lim = n >> 1;
+    for (size_t ix = 0; ix < lim; ix++)
     {
-        do
-        {
-            #ifdef USE_XOSHIRO128
-            rnd1 = xoshiro128pp(state);
-            rnd2 = xoshiro128pp(state);
-            #else
-            rnd0 = xoshiro256pp(state);
-            memcpy(&rnd1, (char*)&rnd0, sizeof(uint32_t));
-            memcpy(&rnd2, (char*)&rnd0 + sizeof(uint32_t), sizeof(uint32_t));
-            #endif
-
-            #if defined(FLT_MANT_DIG) && (FLT_MANT_DIG == 24) &&(FLT_RADIX == 2)
-            u = ldexpf((float)((int32_t)(rnd1 & two25_i) - two24_i), -24);
-            v = ldexpf((float)((int32_t)(rnd2 & two25_i) - two24_i), -24);
-            #else
-            u = (float)rnd1 / (float)INT32_MAX;
-            v = (float)rnd2 / (float)INT32_MAX;
-            #endif
-
-            s = square(u) + square(v);
-        }
-        while (s == 0 || s >= 1);
-
-        s = sqrtf((-2.0f / s) * logf(s));
-        seq[n - (size_t)1] = ldexpf(u * s, -7);
+        rnd = xoshiro256pp(state);
+        ix_ = ix << 1;
+        #ifdef SUPPORTS_HEXFLOAT
+        seq[ix_] = ((float)(rnd & 0x7fffff) + 0.5f) * 0x1.0p-30f;
+        seq[ix_ + 1] = ((float)(rnd >> 41) + 0.5f) * 0x1.0p-30f;
+        #else
+        seq[ix_] = ldexpf((float)(rnd & 0x7fffff) + 0.5f, -30);
+        seq[ix_ + 1] = ldexpf((float)(rnd >> 41) + 0.5f, -30);
+        #endif
     }
+    if ((lim << 1) < n)
+    {
+        rnd = xoshiro256pp(state);
+        #ifdef SUPPORTS_HEXFLOAT
+        seq[lim-1] = ((float)(rnd & 0x7fffff) + 0.5f) * 0x1.0p-30f;
+        #else
+        seq[lim-1] = ldexpf((float)(rnd & 0x7fffff) + 0.5f, -30);
+        #endif
+    }
+    #else
+    #ifdef SUPPORTS_HEXFLOAT
+    for (size_t ix = 0; ix < n; ix++)
+        seq[ix] = ((float)(xoshiro128pp(state) >> 9) + 0.5f) * 0x1.0p-30f;
+    #else
+    for (size_t ix = 0; ix < n; ix++)
+        seq[ix] = ldexpf((float)(xoshiro128pp(state) >> 9) + 0.5f, -30);
+    #endif
+    #endif
 }
 #endif
 
@@ -833,23 +912,56 @@ void rnorm_singlethread(ArraysToFill arrays, rng_state_t state[4])
         rnorm_xoshiro(arrays.B, arrays.sizeB, state);
 }
 
+void runif_singlethread(ArraysToFill arrays, rng_state_t state[4])
+{
+    if (arrays.sizeA)
+        runif_xoshiro(arrays.A, arrays.sizeA, state);
+    if (arrays.sizeB)
+        runif_xoshiro(arrays.B, arrays.sizeB, state);
+}
+
 /* This function generates random normal numbers in parallel, but dividing the
    arrays to fill into buckets of up to 250k each. It uses the jumping technique
    from the Xorshiro family in order to ensure that the generated numbers will
    not overlap. */
-int_t rnorm_parallel(ArraysToFill arrays, int_t seed, int nthreads)
+int_t random_parallel(ArraysToFill arrays, int_t seed, bool normal, int nthreads)
 {
     #ifdef USE_R_RNG
     GetRNGstate();
-    for (size_t ix = 0; ix < arrays.sizeA; ix++)
-        arrays.A[ix] = norm_rand();
-    for (size_t ix = 0; ix < arrays.sizeB; ix++)
-        arrays.B[ix] = norm_rand();
+    if (normal)
+    {
+        #ifdef SUPPORTS_HEXFLOAT
+        for (size_t ix = 0; ix < arrays.sizeA; ix++)
+            arrays.A[ix] = norm_rand() * 0x1.0p-7;
+        for (size_t ix = 0; ix < arrays.sizeB; ix++)
+            arrays.B[ix] = norm_rand() * 0x1.0p-7;
+        #else
+        for (size_t ix = 0; ix < arrays.sizeA; ix++)
+            arrays.A[ix] = ldexp(norm_rand(), -7);
+        for (size_t ix = 0; ix < arrays.sizeB; ix++)
+            arrays.B[ix] = ldexp(norm_rand(), -7);
+        #endif
+    }
+
+    else
+    {
+        #ifdef SUPPORTS_HEXFLOAT
+        for (size_t ix = 0; ix < arrays.sizeA; ix++)
+            arrays.A[ix] = unif_rand() * 0x1.0p-7;
+        for (size_t ix = 0; ix < arrays.sizeB; ix++)
+            arrays.B[ix] = unif_rand() * 0x1.0p-7;
+        #else
+        for (size_t ix = 0; ix < arrays.sizeA; ix++)
+            arrays.A[ix] = ldexp(unif_rand(), -7);
+        for (size_t ix = 0; ix < arrays.sizeB; ix++)
+            arrays.B[ix] = ldexp(unif_rand(), -7);
+        #endif
+    }
     PutRNGstate();
     return 0;
     #endif
     
-    const size_t BUCKET_SIZE = (size_t)250000;
+    const size_t BUCKET_SIZE = (size_t)1 << 18; /* <- a bit over 250k */
     rng_state_t initial_state[4];
     seed_state(seed, initial_state);
     if (arrays.sizeA + arrays.sizeB < BUCKET_SIZE)
@@ -909,14 +1021,17 @@ int_t rnorm_parallel(ArraysToFill arrays, int_t seed, int nthreads)
     #endif
 
     #pragma omp parallel for schedule(static) num_threads(nthreads) \
-            shared(states)
+            shared(states, normal)
     for (size_t_for ix = 0; ix < tot_buckets; ix++)
     {
         rng_state_t state[] = {states[(size_t)4*ix],
                                states[(size_t)4*ix + (size_t)1],
                                states[(size_t)4*ix + (size_t)2],
                                states[(size_t)4*ix + (size_t)3]};
-        rnorm_xoshiro(ptr_bucket_[ix], sz_bucket_[ix], state);
+        if (normal)
+            rnorm_xoshiro(ptr_bucket_[ix], sz_bucket_[ix], state);
+        else
+            runif_xoshiro(ptr_bucket_[ix], sz_bucket_[ix], state);
     }
 
     free(ptr_bucket_);
@@ -1607,16 +1722,16 @@ void R_nan_to_C_nan(real_t arr[], size_t n)
 }
 #endif
 
-long double compensated_sum(real_t *arr, size_t n)
+double compensated_sum(real_t *arr, size_t n)
 {
-    long double err = 0.;
-    long double diff = 0.;
-    long double temp;
-    long double res = 0;
+    double err = 0.;
+    double diff = 0.;
+    double temp;
+    double res = 0;
 
     for (size_t ix = 0; ix < n; ix++)
     {
-        diff = arr[ix] - err;
+        diff = (double)arr[ix] - err;
         temp = res + diff;
         err = (temp - res) - diff;
         res = temp;
@@ -1625,16 +1740,16 @@ long double compensated_sum(real_t *arr, size_t n)
     return res;
 }
 
-long double compensated_sum_product(real_t *restrict arr1, real_t *restrict arr2, size_t n)
+double compensated_sum_product(real_t *restrict arr1, real_t *restrict arr2, size_t n)
 {
-    long double err = 0.;
-    long double diff = 0.;
-    long double temp;
-    long double res = 0;
+    double err = 0.;
+    double diff = 0.;
+    double temp;
+    double res = 0;
 
     for (size_t ix = 0; ix < n; ix++)
     {
-        diff = fmal(arr1[ix], arr2[ix], -err);
+        diff = fma((double)arr1[ix], (double)arr2[ix], -err);
         temp = res + diff;
         err = (temp - res) - diff;
         res = temp;

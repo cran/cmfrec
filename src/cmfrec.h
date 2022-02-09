@@ -50,7 +50,7 @@
 
     MIT License:
 
-    Copyright (c) 2020-2021 David Cortes
+    Copyright (c) 2020-2022 David Cortes
 
     All rights reserved.
 
@@ -199,14 +199,30 @@ typedef void (*sig_t_)(int);
     #define M_PI 3.14159265358979323846
 #endif
 
-#if defined(_FOR_R) || defined(_FOR_PYTHON) || !defined(_WIN32)
+#if defined(_FOR_R) || defined(_FOR_PYTHON)
     #define CMFREC_EXPORTABLE 
-#else
+#elif defined(_WIN32)
     #ifdef CMFREC_COMPILE_TIME
         #define CMFREC_EXPORTABLE __declspec(dllexport)
     #else
         #define CMFREC_EXPORTABLE __declspec(dllimport)
-    #endif 
+    #endif
+#else
+    #if defined(EXPLICITLTY_EXPORT_SYMBOLS) && defined(CMFREC_COMPILE_TIME)
+        #define CMFREC_EXPORTABLE __attribute__((visibility ("default")))
+    #else
+        #define CMFREC_EXPORTABLE 
+    #endif
+#endif
+
+#if defined(_WIN32) || defined(NO_LONG_DOUBLE)
+    typedef double ldouble_safe;
+    #define sqrtLD sqrt
+    #define ceilLD ceil
+#else
+    typedef long double ldouble_safe;
+    #define sqrtLD sqrtl
+    #define ceilLD ceill
 #endif
 
 #if !defined(USE_FLOAT)
@@ -290,6 +306,11 @@ typedef void (*sig_t_)(int);
 #else
     #define rng_state_t uint32_t
     #define USE_XOSHIRO128
+#endif
+
+#if (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) ||\
+    (defined(__cplusplus) && __cplusplus >= 201703L)
+    #define SUPPORTS_HEXFLOAT
 #endif
 
 #if !defined(LAPACK_H) && !defined(_FOR_R)
@@ -424,6 +445,12 @@ __attribute__((optimize ("no-math-errno")))
 __attribute__((optimize ("no-trapping-math")))
 #endif
 ;
+void runif_xoshiro(real_t *seq, const size_t n, rng_state_t state[4])
+#if defined(__GNUC__) && !defined(__clang__) && !defined(_FOR_R)
+__attribute__((optimize ("no-math-errno")))
+__attribute__((optimize ("no-trapping-math")))
+#endif
+;
 void seed_state(int_t seed, rng_state_t state[4]);
 void fill_rnorm_buckets
 (
@@ -431,7 +458,8 @@ void fill_rnorm_buckets
     real_t **ptr_bucket, size_t *sz_bucket, const size_t BUCKET_SIZE
 );
 void rnorm_singlethread(ArraysToFill arrays, rng_state_t state[4]);
-int_t rnorm_parallel(ArraysToFill arrays, int_t seed, int nthreads);
+void runif_singlethread(ArraysToFill arrays, rng_state_t state[4]);
+int_t random_parallel(ArraysToFill arrays, int_t seed, bool normal, int nthreads);
 void reduce_mat_sum(real_t *restrict outp, size_t lda, real_t *restrict inp,
                     int_t m, int_t n, int nthreads);
 void exp_neg_x(real_t *restrict arr, size_t n, int nthreads)
@@ -594,8 +622,8 @@ void act_on_interrupt(int retval, bool handle_interrupt, bool print_msg);
 #ifdef _FOR_R
 void R_nan_to_C_nan(real_t arr[], size_t n);
 #endif
-long double compensated_sum(real_t *arr, size_t n);
-long double compensated_sum_product(real_t *restrict arr1, real_t *restrict arr2, size_t n);
+double compensated_sum(real_t *arr, size_t n);
+double compensated_sum_product(real_t *restrict arr1, real_t *restrict arr2, size_t n);
 void custom_syr(const int_t n, const real_t alpha, const real_t *restrict x, real_t *restrict A, const int_t lda)
 #if defined(__GNUC__) && !defined(__clang__) && !defined(_FOR_R)
 __attribute__((hot))

@@ -50,7 +50,7 @@
 
     MIT License:
 
-    Copyright (c) 2020-2021 David Cortes
+    Copyright (c) 2020-2022 David Cortes
 
     All rights reserved.
 
@@ -418,7 +418,7 @@ real_t offsets_fun_grad
     }
 
     else {
-        long double freg = 0;
+        ldouble_safe freg = 0;
         if (user_bias) cblas_taxpy(m, lam_unique[0], biasA, 1, g_biasA, 1);
         if (item_bias) cblas_taxpy(n, lam_unique[1], biasB, 1, g_biasB, 1);
         taxpy_large(A, lam_unique[2], g_A, (size_t)m*(size_t)k_szA, nthreads);
@@ -1400,7 +1400,7 @@ int_t fit_offsets_explicit_lbfgs_internal
                   - (size_t)(item_bias? n : 0),
             NULL, 0
         };
-        retval = rnorm_parallel(arrays, seed, nthreads);
+        retval = random_parallel(arrays, seed, true, nthreads);
         if (retval != 0) goto cleanup;
     }
 
