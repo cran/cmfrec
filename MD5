@@ -1,4 +1,4 @@
-d65dea80ec25bbb8f833ab8df8576c56 *DESCRIPTION
+7c14a6da5e9a1742fe75688c7d3e20de *DESCRIPTION
 7fe17f421e40965a393786c2d9e47bfe *LICENSE
 83f49f57ef7ed1ae76df375d98bb678b *NAMESPACE
 bce6ab7af2c15063f1a60ade4e472c16 *R/factors.R
@@ -40,7 +40,7 @@ b713f6d4d9e09594dff8ab04375e6ac7 *src/cmfrec-win.def
 ef5fae2b77782d0f89ab438698457ce5 *src/cmfrec.h
 bbb558b6539b57b06ef5575cc336fe0a *src/collective.c
 a1a79cec8124bd84d19b1ed601af18d6 *src/common.c
-600d00b57cf7850c7ae54c9a476dda19 *src/helpers.c
+5c22bb355c4f8150eb8b39ca2da2df54 *src/helpers.c
 85a84c66da0ffda199e9c917afd82149 *src/lbfgs.c
 37ee935d4bcf26206cacd4510e74e9b0 *src/lbfgs.h
 67aa44dd8102cd7e17d1d7e8c5d68dfb *src/offsets.c
