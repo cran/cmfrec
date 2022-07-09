@@ -544,7 +544,6 @@ void sum_mat
     real_t *restrict A, size_t lda,
     real_t *restrict B, size_t ldb
 );
-void transpose_mat(real_t *restrict A, size_t m, size_t n, real_t *restrict buffer_real_t);
 void transpose_mat2(real_t *restrict A, size_t m, size_t n, real_t *restrict outp);
 void transpose_mat3
 (
@@ -577,8 +576,6 @@ void coo_to_csr_and_csc
     real_t *restrict csr_w, real_t *restrict csc_w,
     int nthreads
 );
-void row_means_csr(size_t indptr[], real_t *restrict values,
-                   real_t *restrict output, int_t m, int nthreads);
 extern bool should_stop_procedure;
 extern bool handle_is_locked;
 void set_interrup_global_variable(int_t s);

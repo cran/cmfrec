@@ -1,4 +1,4 @@
-7c14a6da5e9a1742fe75688c7d3e20de *DESCRIPTION
+e9ecebfa2c65955c33d49512fb81d638 *DESCRIPTION
 7fe17f421e40965a393786c2d9e47bfe *LICENSE
 83f49f57ef7ed1ae76df375d98bb678b *NAMESPACE
 bce6ab7af2c15063f1a60ade4e472c16 *R/factors.R
@@ -11,12 +11,12 @@ d6ee2dc86d014a82ea8d3e4a6bfe9d46 *R/impute.R
 6dbf44277de24e8f8c5891f89ea565cc *R/other.R
 4b8626714ed72cc8178af7d5ff28d954 *R/predict.R
 559bebd75bb7969fa05687070f0e10a6 *R/predict_new.R
-38496767574f95feb7e902ee7c3d1df7 *R/topN.R
-4707cc4e9926081b2b75a85a454de0b7 *build/vignette.rds
-4fdf8f4604b0ced2fafae4c4800c0f0c *inst/COPYRIGHTS
+9a7ecba319f750f025c21f8bbeb70f6c *R/topN.R
+5cd0360383aa7258861f71047c5b541f *build/vignette.rds
+893a00b69a0a35338283a87b3197fb3a *inst/COPYRIGHTS
 5d666b94ea1bdb2bd20d79388d461bd0 *inst/doc/cmfrec_vignette.R
 48e342d74e96a78decb62009a50ad7da *inst/doc/cmfrec_vignette.Rmd
-d02fcdd53493f22451e397e69bd03bb9 *inst/doc/cmfrec_vignette.html
+d4c8de27c6128c40a7ac60d0836ad8a3 *inst/doc/cmfrec_vignette.html
 5feb2c7be022d3d829caeb4507571985 *man/CMF.from.model.matrices.Rd
 fd5bcf1a9932fae4c9df04daa581f249 *man/drop.nonessential.matrices.Rd
 221b23890aaa4d8efa40c7e8e5e7da9a *man/factors.Rd
@@ -37,10 +37,10 @@ af3762ea3a74e3c1663b511e440eee11 *src/Rwrapper.c
 3f2b6578be831f94a1bc713574fab115 *src/arithmetic_ansi.h
 dd1dcc9155794325a38f95360a9317cf *src/cblas_wrappers.c
 b713f6d4d9e09594dff8ab04375e6ac7 *src/cmfrec-win.def
-ef5fae2b77782d0f89ab438698457ce5 *src/cmfrec.h
-bbb558b6539b57b06ef5575cc336fe0a *src/collective.c
-a1a79cec8124bd84d19b1ed601af18d6 *src/common.c
-5c22bb355c4f8150eb8b39ca2da2df54 *src/helpers.c
+d7f24a5256d9815ba13c8e7129b35812 *src/cmfrec.h
+8f6d8130b98732e9d59852f850e5e709 *src/collective.c
+eeb59de2c65ff2007baa05bd4e3d741d *src/common.c
+14aa9a507aae5cbd45806b42788184bf *src/helpers.c
 85a84c66da0ffda199e9c917afd82149 *src/lbfgs.c
 37ee935d4bcf26206cacd4510e74e9b0 *src/lbfgs.h
 67aa44dd8102cd7e17d1d7e8c5d68dfb *src/offsets.c

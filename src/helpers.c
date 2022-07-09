@@ -84,15 +84,15 @@ void set_to_zero_(real_t *arr, size_t n, int nthreads)
     nthreads = (nthreads > 1)? 2 : 1;
     size_t chunk_size = n / (size_t)nthreads;
     size_t remainder = n % (size_t)nthreads;
-    int_t i = 0;
+    int i = 0;
     if (nthreads > 1 && n > (size_t)1e8)
     {
         #pragma omp parallel for schedule(static, 1) \
                 firstprivate(arr, chunk_size, nthreads) num_threads(nthreads)
         for (i = 0; i < nthreads; i++)
-            memset(arr + i * chunk_size, 0, chunk_size*sizeof(real_t));
+            memset(arr + (size_t)i * chunk_size, 0, chunk_size*sizeof(real_t));
         if (remainder > 0)
-            memset(arr + nthreads * chunk_size, 0, remainder*sizeof(real_t));
+            memset(arr + (size_t)nthreads * (size_t)chunk_size, 0, remainder*sizeof(real_t));
     } else
     #endif
     {
@@ -112,14 +112,14 @@ void copy_arr_(real_t *restrict src, real_t *restrict dest, size_t n, int nthrea
         nthreads = cap_to_4(nthreads);
         size_t chunk_size = n / (size_t)nthreads;
         size_t remainder = n % (size_t)nthreads;
-        int_t i = 0;
+        int i = 0;
 
         #pragma omp parallel for schedule(static, 1) \
                 firstprivate(src, dest, chunk_size, nthreads) num_threads(nthreads)
         for (i = 0; i < nthreads; i++)
-            memcpy(dest + i * chunk_size, src + i * chunk_size, chunk_size*sizeof(real_t));
+            memcpy(dest + (size_t)i * (size_t)chunk_size, src + (size_t)i * chunk_size, chunk_size*sizeof(real_t));
         if (remainder > 0)
-            memcpy(dest + nthreads*chunk_size, src + nthreads*chunk_size, remainder*sizeof(real_t));
+            memcpy(dest + (size_t)nthreads*chunk_size, src + (size_t)nthreads*chunk_size, remainder*sizeof(real_t));
     }  else 
     #endif
     {
@@ -1259,14 +1259,6 @@ void sum_mat
             B[col + row*ldb] += A[col + row*lda];
 }
 
-void transpose_mat(real_t *restrict A, size_t m, size_t n, real_t *restrict buffer_real_t)
-{
-    memcpy(buffer_real_t, A, m*n*sizeof(real_t));
-    for (size_t row = 0; row < m; row++)
-        for (size_t col = 0; col < n; col++)
-            A[row + col*m] = buffer_real_t[col + row*n];
-}
-
 void transpose_mat2(real_t *restrict A, size_t m, size_t n, real_t *restrict outp)
 {
     for (size_t row = 0; row < m; row++)
@@ -1494,27 +1486,6 @@ void coo_to_csr_and_csc
     cleanup:
         free(cnt_byrow);
         free(cnt_bycol);
-}
-
-void row_means_csr(size_t indptr[], real_t *restrict values,
-                   real_t *restrict output, int_t m, int nthreads)
-{
-    int_t row = 0;
-    set_to_zero(values, m);
-    #pragma omp parallel for schedule(dynamic) num_threads(nthreads) \
-            shared(indptr, values, output, m)
-    for (row = 0; row < m; row++)
-    {
-        double rsum = 0;
-        for (size_t ix = indptr[row]; ix < indptr[row+(size_t)1]; ix++)
-            rsum += values[ix];
-        output[row] = rsum;
-    }
-    nthreads = cap_to_4(nthreads);
-    #pragma omp parallel for schedule(static) num_threads(nthreads) \
-            shared(indptr, output, m)
-    for (row = 0; row < m; row++)
-        output[row] /= (real_t)(indptr[row+(size_t)1] - indptr[row]);
 }
 
 bool should_stop_procedure = false;
