@@ -73,6 +73,8 @@
     IN THE SOFTWARE.
 
 *******************************************************************************/
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -2888,3 +2890,4 @@ CMFREC_EXPORTABLE int_t predict_X_new_content_based
 #ifdef __cplusplus
 }
 #endif
+
