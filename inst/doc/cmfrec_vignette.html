@@ -848,10 +848,11 @@ having factors that are not shared, among others.</p>
 <span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>                        <span class="at">k=</span><span class="dv">25</span>, <span class="at">lambda=</span><span class="fl">0.1</span>, <span class="at">scale_lam=</span><span class="cn">TRUE</span>,</span>
 <span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>                        <span class="at">niter=</span><span class="dv">30</span>, <span class="at">use_cg=</span><span class="cn">FALSE</span>, <span class="at">include_all_X=</span><span class="cn">FALSE</span>,</span>
 <span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>                        <span class="at">w_main=</span><span class="fl">0.75</span>, <span class="at">w_user=</span><span class="fl">0.5</span>, <span class="at">w_item=</span><span class="fl">0.5</span>, <span class="at">w_implicit=</span><span class="fl">0.5</span>,</span>
-<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>                        <span class="at">verbose=</span><span class="cn">FALSE</span>)</span>
-<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>pred_side_info <span class="ot">&lt;-</span> <span class="fu">predict</span>(model.w.sideinfo, X_test)</span>
-<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a><span class="fu">print_rmse</span>(X_test, pred_side_info, <span class="st">&quot;model with side info&quot;</span>)</span></code></pre></div>
-<pre><code>#&gt; RMSE for model with side info is: 0.9102</code></pre>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>                        <span class="at">center_U=</span><span class="cn">FALSE</span>, <span class="at">center_I=</span><span class="cn">FALSE</span>,</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>                        <span class="at">verbose=</span><span class="cn">FALSE</span>)</span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>pred_side_info <span class="ot">&lt;-</span> <span class="fu">predict</span>(model.w.sideinfo, X_test)</span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a><span class="fu">print_rmse</span>(X_test, pred_side_info, <span class="st">&quot;model with side info&quot;</span>)</span></code></pre></div>
+<pre><code>#&gt; RMSE for model with side info is: 0.9117</code></pre>
 <hr />
 <p>Summary:</p>
 <div class="sourceCode" id="cb11"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(kableExtra)</span>
@@ -910,7 +911,7 @@ ClassicPlusImplicit
 CollectiveModel
 </td>
 <td style="text-align:right;">
-0.9102249
+0.9116610
 </td>
 </tr>
 </tbody>
