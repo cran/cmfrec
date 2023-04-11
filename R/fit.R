@@ -48,7 +48,8 @@ NULL
 #' and the objective is to minimize squared error over the non-missing entries, in the
 #' implicit-feedback variants the matrix `X` is assumed to be binary (all entries are zero
 #' or one, with no unknown values), with the positive entries (those which are not
-#' missing in the data) having a weight determined by `X`.
+#' missing in the data) having a weight determined by `X`, and without including any
+#' user/item biases or centering for the 'X' matrix.
 #' 
 #' `CMF` is intended for explicit feedback data (e.g. movie ratings, which contain both
 #' likes and dislikes), whereas `CMF_implicit` is intended for implicit feedback data
@@ -511,6 +512,10 @@ NULL
 #' This might help to speed up the procedure by starting closer to an
 #' optimum. This option is not available when the side information is passed
 #' as sparse matrices.
+#' 
+#' Note that this option will not work (will throw an error) if there are
+#' users or items without side information, or if the input data is otherwise
+#' problematic (e.g. users/items which are duplicates of each other).
 #' @param apply_log_transf Whether to apply a logarithm transformation on the values of `X`
 #' (i.e. `X := log(X)`)
 #' @param NA_as_zero Whether to take missing entries in the `X` matrix as zeros (only
@@ -950,8 +955,12 @@ validate.inputs <- function(model, implicit=FALSE,
     if (nthreads > 1L && !.Call(R_has_openmp)) {
         msg <- paste0("Attempting to use more than 1 thread, but ",
                       "package was compiled without OpenMP support.")
-        if (tolower(Sys.info()[["sysname"]]) == "darwin")
-            msg <- paste0(msg, " See https://mac.r-project.org/openmp/")
+        if (tolower(Sys.info()[["sysname"]]) == "darwin") {
+            msg <- paste0(
+                msg,
+                " See https://github.com/david-cortes/installing-optimized-libraries#4-macos-install-and-enable-openmp"
+            )
+        }
         warning(msg)
     }
     
@@ -1108,7 +1117,7 @@ validate.inputs <- function(model, implicit=FALSE,
     user_mapping <- character()
     item_mapping <- character()
     if (reindex) {
-        temp <- reindex.data(X, U, I, U_bin, I_bin)
+        temp <- reindex.data(X, U, I, U_bin, I_bin, (model %in% c("ContentBased", "OMF_explicit")) && start_with_ALS)
         X <- temp$X
         U <- temp$U
         I <- temp$I
