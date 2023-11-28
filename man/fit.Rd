@@ -558,7 +558,7 @@ Note that, when using preconditioning, the procedure will not check for converge
 taking instead a fixed number of steps (given by `max_cg_steps`) at each iteration
 regardless of whether it has reached the optimum already.
 
-Ignored when passing `use_cg=FALSE` or `method="als"`.}
+Ignored when passing `use_cg=FALSE` or `method="lbfgs"`.}
 
 \item{finalize_chol}{When passing `use_cg=TRUE` and using the ALS method, whether to perform the last iteration with
 the Cholesky solver. This will make it slower, but will avoid the issue
@@ -701,7 +701,11 @@ Whether to add intercepts/biases to the user/item attribute matrices.}
 Whether to determine the initial coefficients through an ALS procedure.
 This might help to speed up the procedure by starting closer to an
 optimum. This option is not available when the side information is passed
-as sparse matrices.}
+as sparse matrices.
+
+Note that this option will not work (will throw an error) if there are
+users or items without side information, or if the input data is otherwise
+problematic (e.g. users/items which are duplicates of each other).}
 
 \item{k_sec}{(Only for `OMF_explicit`)
 Number of factors in the factorizing matrices which are determined
@@ -780,7 +784,8 @@ case, based on reference [3]. While in `CMF` the values of `X` are taken at face
 and the objective is to minimize squared error over the non-missing entries, in the
 implicit-feedback variants the matrix `X` is assumed to be binary (all entries are zero
 or one, with no unknown values), with the positive entries (those which are not
-missing in the data) having a weight determined by `X`.
+missing in the data) having a weight determined by `X`, and without including any
+user/item biases or centering for the 'X' matrix.
 
 `CMF` is intended for explicit feedback data (e.g. movie ratings, which contain both
 likes and dislikes), whereas `CMF_implicit` is intended for implicit feedback data
@@ -949,8 +954,8 @@ for new data will offer an option `exact` for determining whether to apply the
 regularization to the \eqn{\mathbf{A}, \mathbf{B}}{A, B} matrices instead.
 
 For reproducibility, the initializations of the model matrices (always initialized
-as `~ Normal(0, 1)`) can be controlled
-through `set.seed`, but if using parallelizations, there are potential sources
+as `~ Normal(0, 1)` for `CMF` and as `~ Uniform(0,1)` for `CMF_implicit`) can be controlled
+through the seed parameter, but if using parallelizations, there are potential sources
 of irreproducibility of random seeds due to parallelized aggregations and/or
 BLAS function calls, which is especially problematic for the L-BFGS method
 with `parallelize='single'`.
@@ -975,42 +980,12 @@ package installed for better performance - if available, will be used to control
 of internal BLAS threads before entering a multi-threaded region, in order to avoid oversubscription of
 threads. This can become an issue when using OpenBLAS if it is the 'pthreads' variant.
 
-This package relies heavily on BLAS and LAPACK functions. For better performance, it is
-recommended to use an optimized backed for them, such as MKL or OpenBLAS.
+This package relies heavily on BLAS and LAPACK functions, and benefits from SIMD vectorization.
+For better performance, it is recommended to use an optimized backed such as MKL or OpenBLAS,
+and to enable additional compiler optimizations that are not used by default in R.
 
-In Windows, the easiest way of getting MKL is to use Microsoft's
-\href{https://mran.microsoft.com}{MRAN distribution of R}, while OpenBLAS can be obtained by
-following \href{https://github.com/david-cortes/R-openblas-in-windows}{this tutorial}
-(no new R installation required).
-
-In Linux, these can be installed through the system's package manager. In Debian and
-Debian-based distributions such as Ubuntu, the default BLAS and LAPACK can be configured
-through the alternatives system (see the
-\href{https://wiki.debian.org/DebianScience/LinearAlgebraLibraries}{Debian docs} or
-\href{https://stackoverflow.com/a/49842944/5941695}{this post for MKL}).
-
-By default, in a regular x86-64 CPU, R will compile all packages with generic options
-`-msse2` and `-O2`, which misses lots of performance optimizations, and in particular,
-`cmfrec` will not be able to achieve its maximum performance with them.
-
-It is recommended to use compilation options `-O3`, `-march=native`,
-`-fno-math-errno`, `-fno-trapping-math`, and `-std=c99` or `-std=gnu99`.
-These can be activated in multiple ways: \itemize{
-\item (On Linux) Creating an empty text file `~/.R/Makevars` and adding this line there:
-`CFLAGS += -O3 -march=native -fno-math-errno -fno-trapping-math`
-(plus an empty line at the end), then installing the usual
-way with `install.packages("cmfrec")`.
-\item Installing `cmfrec` from source, but modifying the `Makevars` file (it has lines
-that can be uncommented in order to enable these optimizations).
-\item Modifying the global `Makeconf` variable. This is a file which defines the default
-compilation options for \bold{all} R packages, so be careful about it. In Debian,
-this file will typically be under `/etc/R/`, but this can vary in other operating systems.
-In this file, replace all occurences of `-O2` with `-O3`, and all occurrences of
-`-msse2` with `-march=native -fno-math-errno -fno-trapping-math` (e.g. open them
-in some text editor or in RStudio and
-use the 'Replace All' functionality) (not recommended to edit this global file, it should be
-preferred to edit the local user Makevars instead).
-}
+See this guide for details:
+\href{https://github.com/david-cortes/installing-optimized-libraries}{installing optimized libraries}.
 }
 
 \examples{

@@ -1237,7 +1237,7 @@ void copy_mat
 )
 {
     char uplo = '?';
-    if (m == 0 && n == 0) return;
+    if (m == 0 || n == 0) return;
 
     if (ldb == n && lda == n)
         memcpy(B, A, (size_t)m*(size_t)n*sizeof(real_t));
@@ -1263,8 +1263,8 @@ void sum_mat
 
 void transpose_mat2(real_t *restrict A, size_t m, size_t n, real_t *restrict outp)
 {
-    for (size_t row = 0; row < m; row++)
-        for (size_t col = 0; col < n; col++)
+    for (size_t col = 0; col < n; col++)
+        for (size_t row = 0; row < m; row++)
             outp[row + col*m] = A[col + row*n];
 }
 
@@ -1275,8 +1275,8 @@ void transpose_mat3
     real_t *restrict outp, size_t ldb
 )
 {
-    for (size_t row = 0; row < m; row++)
-        for (size_t col = 0; col < n; col++)
+    for (size_t col = 0; col < n; col++)
+        for (size_t row = 0; row < m; row++)
             outp[row + col*ldb] = A[col + row*lda];
 }
 
@@ -1630,12 +1630,15 @@ void fill_lower_triangle(real_t A[], size_t n, size_t lda)
 
 void print_err_msg(const char *msg)
 {
-    #ifndef _FOR_R
-    fprintf(stderr, "%s", msg);
+    #ifdef _FOR_PYTHON
+    cy_errprintf(msg);
+    #elif defined(_FOR_R)
+    REprintf("%s", msg);
+    R_FlushConsole();
     #else
-    fprintf(stderr, msg);
-    #endif
+    fprintf(stderr, "%s", msg);
     fflush(stderr);
+    #endif
 }
 
 void print_oom_message(void)
@@ -1655,22 +1658,12 @@ void py_printf(const char *fmt, ...)
     cy_printf(msg);
 }
 
-void py_errprintf(void *ignored, const char *fmt, ...)
-{
-    char msg[PY_MSG_MAX_LENGTH];
-    va_list args;
-    va_start(args, fmt);
-    vsnprintf(msg, PY_MSG_MAX_LENGTH, fmt, args);
-    va_end(args);
-    cy_errprintf(msg);
-}
-
-void python_printmsg(char *msg)
+void python_printmsg(const char *msg)
 {
     PySys_WriteStdout("%s", msg);
 }
 
-void python_printerrmsg(char *msg)
+void python_printerrmsg(const char *msg)
 {
     PySys_WriteStderr("%s", msg);
 }
